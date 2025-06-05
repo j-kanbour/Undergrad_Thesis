@@ -23,6 +23,7 @@ class PointCloudData:
         if self.pcd is not None and len(self.pcd.points) > 0:
             self.centroid = self.findCentroid()
             self.boundingBox = self.findBoundingBox()
+            self.axis = self.findAxis()
         else:
             self.centroid = None
             self.boundingBox = None
@@ -109,6 +110,33 @@ class PointCloudData:
 
     def findCentroid(self):
         return np.mean(np.asarray(self.pcd.points), axis=0)
+    
+    def findAxis(self):
+        if self.pcd is None or len(self.pcd.points) == 0:
+            self.print("Cannot compute axis: Point cloud is empty.")
+            return None
+
+        points = np.asarray(self.pcd.points)
+        centroid = self.centroid
+
+        # Center the points
+        centered_points = points - centroid
+
+        # Compute covariance matrix
+        cov_matrix = np.cov(centered_points, rowvar=False)
+
+        # Compute eigenvalues and eigenvectors
+        eigenvalues, eigenvectors = np.linalg.eigh(cov_matrix)
+
+        # Sort eigenvectors by descending eigenvalues
+        idx = np.argsort(eigenvalues)[::-1]
+        principal_direction = eigenvectors[:, idx[0]]  # First principal component
+
+        # Return a line representation: origin (centroid) and direction vector
+        return {
+            "origin": centroid,
+            "direction": principal_direction
+        } 
 
     def getPCD(self):
         return self.pcd
@@ -118,6 +146,9 @@ class PointCloudData:
     
     def getBoundingBox(self):
         return self.boundingBox
+    
+    def getAxis(self):
+        return self.axis
 
     def update(self):
         pass

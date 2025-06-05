@@ -78,15 +78,23 @@ Output:
 - A single superquadric that provides the best possible model for the given object
 """
 def test5():
-    rgb_path="data/rgb_and_depth_data/000001/rgb/000000.png",
-    depth_path="data/rgb_and_depth_data/000001/depth/000000.png",
-    mask_path="data/rgb_and_depth_data/000001/mask_visib/000000_000000.png",
-    scene_info_json="data/rgb_and_depth_data/000001/scene_camera.json"
+    rgb_path = "data/rgb_and_depth_data/000001/rgb/000004.png"
+    depth_path = "data/rgb_and_depth_data/000001/depth/000004.png"
+    mask_path = "data/rgb_and_depth_data/000001/mask_visib/000000_000004.png"
+    scene_info_json = "data/rgb_and_depth_data/000001/scene_camera.json"
 
-    superquadric = Superquadric(object_ID=1, class_name="Bottle", input_type="RGB and DEPTH", raw_data_1=rgb_path, raw_depth=depth_path, raw_mask=mask_path, camera_info=scene_info_json)
-    pointcloud = superquadric.getPCD()
-    
-    # Create a red sphere at the centroid
+    superquadric = Superquadric(
+        object_ID=1,
+        class_name="Bottle",
+        input_type="RGB and DEPTH",
+        raw_data_1=[rgb_path],
+        raw_depth=[depth_path],
+        raw_mask=[mask_path],
+        camera_info=scene_info_json
+    )
+
+    pointcloud = superquadric.pcd
+
     centroid_coords = pointcloud.getCentroid()
     centroid = o3d.geometry.TriangleMesh.create_sphere(radius=0.005)
     centroid.paint_uniform_color([1, 0, 0])
@@ -95,10 +103,38 @@ def test5():
     bbox = o3d.geometry.LineSet.create_from_axis_aligned_bounding_box(pointcloud.getBoundingBox())
     bbox.paint_uniform_color([0, 1, 0])
 
-    o3d.visualization.draw_geometries(
-        [pointcloud.getPCD(), centroid, bbox],
-        window_name="Target Object Point Cloud"
-    )
+    axis_data = pointcloud.findAxis()
+    if axis_data:
+        origin = axis_data["origin"]
+        direction = axis_data["direction"]
+        length = 0.05
+        start = origin - direction * length
+        end = origin + direction * length
+        axis_line = o3d.geometry.LineSet(
+            points=o3d.utility.Vector3dVector([start, end]),
+            lines=o3d.utility.Vector2iVector([[0, 1]])
+        )
+        axis_line.paint_uniform_color([0, 0, 1])
+    else:
+        axis_line = o3d.geometry.LineSet()
+
+    # Use the Visualizer class for more control
+    vis = o3d.visualization.Visualizer()
+    vis.create_window(window_name="Target Object Point Cloud")
+
+    vis.add_geometry(pointcloud.getPCD())
+    vis.add_geometry(superquadric.getSuperquadricAsPCD())
+    vis.add_geometry(centroid)
+    vis.add_geometry(bbox)
+    vis.add_geometry(axis_line)
+
+    # Access render options and set line width
+    opt = vis.get_render_option()
+    opt.line_width = 10  # Adjust this value to make lines thicker
+
+    vis.run()
+    vis.destroy_window()
+
 
 
 """ Test 6
