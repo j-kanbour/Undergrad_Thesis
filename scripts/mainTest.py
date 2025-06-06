@@ -1,7 +1,8 @@
 from pointCloudData import PointCloudData
 from superquadric import Superquadric
 import open3d as o3d
-import sys
+import sys, os, time
+import psutil
 
 """ metrics
 
@@ -77,14 +78,40 @@ Additional Processes:
 Output:
 - A single superquadric that provides the best possible model for the given object
 """
-def test5():
-    rgb_path = "data/rgb_and_depth_data/000001/rgb/000004.png"
-    depth_path = "data/rgb_and_depth_data/000001/depth/000004.png"
-    mask_path = "data/rgb_and_depth_data/000001/mask_visib/000000_000004.png"
-    scene_info_json = "data/rgb_and_depth_data/000001/scene_camera.json"
+def test5(model):
+    
 
+    rgb_path = "data/rgb_and_depth_data/000001/rgb/000000.png"
+    depth_path = "data/rgb_and_depth_data/000001/depth/000000.png"
+    mask_path = "data/rgb_and_depth_data/000001/mask_visib/000000_000000.png"
+    scene_info_json = "data/rgb_and_depth_data/000001/scene_camera.json"
+    object_ID = 1
+
+    if model == "2":
+        rgb_path = "data/rgb_and_depth_data/000001/rgb/000001.png"
+        depth_path = "data/rgb_and_depth_data/000001/depth/000001.png"
+        mask_path = "data/rgb_and_depth_data/000001/mask_visib/000000_000001.png"
+        scene_info_json = "data/rgb_and_depth_data/000001/scene_camera.json"
+        object_ID = 2
+
+    if model == "3":
+        rgb_path = "data/rgb_and_depth_data/000008/rgb/000000.png"
+        depth_path = "data/rgb_and_depth_data/000008/depth/000000.png"
+        mask_path = "data/rgb_and_depth_data/000008/mask_visib/000001_000001.png"
+        scene_info_json = "data/rgb_and_depth_data/000008/scene_camera.json"
+        object_ID = 3
+
+        
+    process = psutil.Process(os.getpid())
+    process.cpu_percent(interval=None)  # prime
+
+    cpu_start = process.cpu_times()
+    num_threads_before = process.num_threads()
+    start_wall = time.perf_counter()
+
+    # Core operation
     superquadric = Superquadric(
-        object_ID=1,
+        object_ID=object_ID,
         class_name="Bottle",
         input_type="RGB and DEPTH",
         raw_data_1=[rgb_path],
@@ -93,6 +120,26 @@ def test5():
         camera_info=scene_info_json
     )
 
+    end_wall = time.perf_counter()
+    cpu_end = process.cpu_times()
+    num_threads_after = process.num_threads()
+
+    # Deltas
+    user_cpu = cpu_end.user - cpu_start.user
+    system_cpu = cpu_end.system - cpu_start.system
+    wall_time = end_wall - start_wall
+    total_cpu = user_cpu + system_cpu
+    cpu_percent = (total_cpu / wall_time) * 100 if wall_time > 0 else 0
+
+    print("\n===== CPU Usage for Superquadric Creation =====")
+    print(f"Wall time elapsed: {wall_time:.4f} seconds")
+    print(f"User CPU time:     {user_cpu:.4f} seconds")
+    print(f"System CPU time:   {system_cpu:.4f} seconds")
+    # print(f"Total CPU usage:   {cpu_percent:.1f}% of one core")
+    # print(f"Threads before:    {num_threads_before}, after: {num_threads_after}")
+    print("==============================================\n")
+
+    # Visualisation
     pointcloud = superquadric.pcd
 
     centroid_coords = pointcloud.getCentroid()
@@ -118,7 +165,6 @@ def test5():
     else:
         axis_line = o3d.geometry.LineSet()
 
-    # Use the Visualizer class for more control
     vis = o3d.visualization.Visualizer()
     vis.create_window(window_name="Target Object Point Cloud")
 
@@ -128,14 +174,11 @@ def test5():
     vis.add_geometry(bbox)
     vis.add_geometry(axis_line)
 
-    # Access render options and set line width
     opt = vis.get_render_option()
-    opt.line_width = 10  # Adjust this value to make lines thicker
+    opt.line_width = 20
 
     vis.run()
     vis.destroy_window()
-
-
 
 """ Test 6
 
@@ -256,12 +299,13 @@ if __name__ == "__main__":
     test_functions = {
         "5": test5
     }
-    if len(sys.argv) != 2:
+    if len(sys.argv) != 3:
         print("add test number as argument: python3 mainTest.py 2")
     else:
         test_number = str(sys.argv[1])
+        model = sys.argv[2]
         if test_number in test_functions:
-            test_functions[test_number]()
+            test_functions[test_number](model)
         else:
             print(f"No test function defined for test{test_number}")
     

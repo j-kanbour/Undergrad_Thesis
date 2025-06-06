@@ -11,7 +11,7 @@ class PointCloudData:
         self.object_ID = object_ID
         self.input_type = input_type
 
-        self.raw_data_1 = raw_data_1[0]  # rgb, rgbd, or pcd
+        self.raw_data_1 = raw_data_1[0]
         self.raw_depth = raw_depth[0] if raw_depth else None
         self.raw_mask = raw_mask[0] if raw_mask else None
         self.camera_info = camera_info
@@ -39,7 +39,7 @@ class PointCloudData:
             rgb = cv2.cvtColor(cv2.imread(self.raw_data_1), cv2.COLOR_BGR2RGB)
             depth = cv2.imread(self.raw_depth, cv2.IMREAD_UNCHANGED)
             mask = cv2.imread(self.raw_mask, cv2.IMREAD_GRAYSCALE)
-        
+
             with open(self.camera_info, 'r') as f:
                 scene_info = json.load(f)["0"]
                 K = np.array(scene_info["cam_K"]).reshape(3, 3)
@@ -87,10 +87,11 @@ class PointCloudData:
 
             pcd = o3d.geometry.PointCloud.create_from_rgbd_image(rgbd_image, intrinsic)
             pcd.transform([[1, 0, 0, 0],
-                           [0, -1, 0, 0],
-                           [0, 0, -1, 0],
-                           [0, 0, 0, 1]])
-            
+                        [0, -1, 0, 0],
+                        [0, 0, -1, 0],
+                        [0, 0, 0, 1]])
+
+            pcd = self.removeOutliers(pcd)
             return pcd
 
         elif self.input_type == 'RGBD':
@@ -110,43 +111,64 @@ class PointCloudData:
 
     def findCentroid(self):
         return np.mean(np.asarray(self.pcd.points), axis=0)
-    
+
     def findAxis(self):
         if self.pcd is None or len(self.pcd.points) == 0:
             self.print("Cannot compute axis: Point cloud is empty.")
             return None
 
         points = np.asarray(self.pcd.points)
-        centroid = self.centroid
 
-        # Center the points
+        # OPTIONAL: downsample if too dense
+        if len(points) > 10000:
+            sampled_indices = np.random.choice(len(points), size=10000, replace=False)
+            points = points[sampled_indices]
+
+        # Centre the points for covariance calculation
+        centroid = np.mean(points, axis=0)
         centered_points = points - centroid
 
-        # Compute covariance matrix
+        # Use PCA to find direction of greatest variance (majority flow)
         cov_matrix = np.cov(centered_points, rowvar=False)
-
-        # Compute eigenvalues and eigenvectors
         eigenvalues, eigenvectors = np.linalg.eigh(cov_matrix)
-
-        # Sort eigenvectors by descending eigenvalues
         idx = np.argsort(eigenvalues)[::-1]
-        principal_direction = eigenvectors[:, idx[0]]  # First principal component
+        principal_direction = eigenvectors[:, idx[0]]
 
-        # Return a line representation: origin (centroid) and direction vector
+        # Return line representation of axis
         return {
             "origin": centroid,
-            "direction": principal_direction
-        } 
+            "direction": principal_direction / np.linalg.norm(principal_direction),
+            "type": "straight"
+        }
+
+    
+    def removeOutliers(self, pcd):
+        """
+        Removes outliers from the input point cloud, keeping only the most clustered 90%.
+        
+        Parameters:
+            pcd (open3d.geometry.PointCloud): The input point cloud.
+        
+        Returns:
+            open3d.geometry.PointCloud: The filtered point cloud.
+        """
+        if pcd.is_empty():
+            print("Warning: Provided point cloud is empty.")
+            return pcd
+
+        # Efficient parameters
+        _, ind = pcd.remove_statistical_outlier(nb_neighbors=100, std_ratio=0.25)
+        return pcd.select_by_index(ind)
 
     def getPCD(self):
         return self.pcd
 
     def getCentroid(self):
         return self.centroid
-    
+
     def getBoundingBox(self):
         return self.boundingBox
-    
+
     def getAxis(self):
         return self.axis
 
