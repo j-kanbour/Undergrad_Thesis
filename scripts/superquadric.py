@@ -11,11 +11,6 @@ class Superquadric:
 
         self.pcd = PointCloudData(object_ID, input_type, raw_data_1, raw_depth, raw_mask, camera_info)
 
-        self.raw_data_1 = raw_data_1[0]
-        self.raw_depth = raw_depth[0]
-        self.raw_mask = raw_mask[0]
-        self.camera_info = camera_info
-
         self.e1, self.e2 = self.estimateE()
         self.modelValues = self.createSuperquadric()
 
@@ -96,15 +91,11 @@ class Superquadric:
         superquadric_min_z = np.min(points[:, 2])
 
         z_offset = pcd_min_z - superquadric_min_z
-        
-        if self.object_ID == 1: 
-            z_offset = z_offset - 0.02
-
         xy_mean = np.mean(points[:, :2], axis=0)
         translation_offset = np.array([
             c1 - xy_mean[0],
-            c2 - xy_mean[1],
-            z_offset
+            c2 - xy_mean[1]+0.01,
+            z_offset - 0.01
         ])
         points += translation_offset
 
@@ -113,6 +104,45 @@ class Superquadric:
         z_final = points[:, 2].reshape(z.shape)
 
         return x_final, y_final, z_final
+
+    def alignWithICP(self, threshold=0.02):
+        source = self.getSuperquadricAsPCD()
+        target = self.pcd.getPCD()
+
+        # Optional: downsampling (safe, improves stability)
+        voxel_size = threshold / 2
+        source_down = source.voxel_down_sample(voxel_size)
+        target_down = target.voxel_down_sample(voxel_size)
+
+        trans_init = np.eye(4)
+
+        # Use PointToPoint ICP — much safer for parametric model
+        reg_p2p = o3d.pipelines.registration.registration_icp(
+            source_down, target_down, threshold, trans_init,
+            o3d.pipelines.registration.TransformationEstimationPointToPoint()
+        )
+        self.print("ICP Fitness:", reg_p2p.fitness)
+        self.print("ICP Inlier RMSE:", reg_p2p.inlier_rmse)
+
+        # Apply transformation to your modelValues
+        x, y, z = self.modelValues
+        points = np.vstack((x.flatten(), y.flatten(), z.flatten())).T
+        points_hom = np.hstack((points, np.ones((points.shape[0], 1))))
+        transformed_points = (reg_p2p.transformation @ points_hom.T).T[:, :3]
+
+        # Reshape back to original shapes
+        x_final = transformed_points[:, 0].reshape(x.shape)
+        y_final = transformed_points[:, 1].reshape(y.shape)
+        z_final = transformed_points[:, 2].reshape(z.shape)
+
+        self.modelValues = (x_final, y_final, z_final)
+
+        # Return aligned superquadric PCD
+        aligned_pcd = o3d.geometry.PointCloud()
+        aligned_pcd.points = o3d.utility.Vector3dVector(transformed_points)
+        return aligned_pcd
+
+
 
     def getSuperquadricAsPCD(self):
         x, y, z = self.modelValues

@@ -135,8 +135,8 @@ def test5(model):
     print(f"Wall time elapsed: {wall_time:.4f} seconds")
     print(f"User CPU time:     {user_cpu:.4f} seconds")
     print(f"System CPU time:   {system_cpu:.4f} seconds")
-    # print(f"Total CPU usage:   {cpu_percent:.1f}% of one core")
-    # print(f"Threads before:    {num_threads_before}, after: {num_threads_after}")
+    print(f"Total CPU usage:   {cpu_percent:.1f}% of one core")
+    print(f"Threads before:    {num_threads_before}, after: {num_threads_after}")
     print("==============================================\n")
 
     # Visualisation
@@ -169,7 +169,8 @@ def test5(model):
     vis.create_window(window_name="Target Object Point Cloud")
 
     vis.add_geometry(pointcloud.getPCD())
-    vis.add_geometry(superquadric.getSuperquadricAsPCD())
+    #vis.add_geometry(superquadric.getSuperquadricAsPCD())
+    vis.add_geometry(superquadric.alignWithICP())
     vis.add_geometry(centroid)
     vis.add_geometry(bbox)
     vis.add_geometry(axis_line)
