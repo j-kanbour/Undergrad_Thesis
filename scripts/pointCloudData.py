@@ -15,15 +15,28 @@ class PointCloudData:
 
         self.pcd = self.covertToPCD(raw_data_1[0], raw_depth[0], raw_mask[0], camera_info)
 
-        if self.pcd is not None and len(self.pcd.points) > 0:
+        if self.pcd and len(self.pcd.points) > 0:
             self.centroid = self.findCentroid()
             self.boundingBox = self.findBoundingBox()
-            self.faces = self.findFaces()
             self.axis = self.findAxis()
         else:
             self.centroid = None
             self.boundingBox = None
             self.print("Warning: Empty point cloud. Centroid and bounding box not computed.")
+
+    def removeOutliers(self, pcd):
+        """
+            Remotes outliers based on nerious neighbour algorithm
+            NOTE: Increasing the effect of this increases run time
+        """
+
+        if pcd.is_empty():
+            print("Warning: Provided point cloud is empty.")
+            return pcd
+
+        # Efficient parameters
+        _, ind = pcd.remove_statistical_outlier(nb_neighbors=100, std_ratio=0.25)
+        return pcd.select_by_index(ind)
 
     def covertToPCD(self, raw_data_1, raw_depth, raw_mask, camera_info):
         """
@@ -134,24 +147,20 @@ class PointCloudData:
 
     def findCentroid(self):
         """
-            Find the centroid of all data points 
+            Find the centroid of all data points by averaging points
             
-            NOTE: May need to change to fingind an intersection between face normals (potential center of the object)
-            - only works for 2 or more faces
-            - for single face objects (???)
+            NOTE: There could be a more accurate way of doing this involving finding planes
+            on the obejct surface and finding the intesect of the centre normals
+            however this method workd for providing a rough estimate
         """
         return np.mean(np.asarray(self.pcd.points), axis=0)
-    
-    def findFaces(self):
-        """
-            Identify the faces of the obejct
-
-            NOTE: Will it identify the internal faces of objects (i.e. inside of a bowl)
-        """
-        pass
 
     def findAxis(self):
         """
+            !!!!!!!!!!!!!!!
+            NOTE: REDUNDANT
+            !!!!!!!!!!!!!!!
+
             Finds the main axis of the object for the superquadric to be orientated
             Currently not sure how this works
 
@@ -206,29 +215,11 @@ class PointCloudData:
             "direction": principal_direction / np.linalg.norm(principal_direction),
         }
 
-    def removeOutliers(self, pcd):
-        """
-            Remotes outliers based on nerious neighbour algorithm
-
-            NOTE: Increasing the effect of this increases run time
-        """
-
-        if pcd.is_empty():
-            print("Warning: Provided point cloud is empty.")
-            return pcd
-
-        # Efficient parameters
-        _, ind = pcd.remove_statistical_outlier(nb_neighbors=100, std_ratio=0.25)
-        return pcd.select_by_index(ind)
-
     def getPCD(self):
         return self.pcd
 
     def getCentroid(self):
         return self.centroid
-    
-    def getFaces(self):
-        return self.faces
 
     def getBoundingBox(self):
         return self.boundingBox
