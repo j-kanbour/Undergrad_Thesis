@@ -22,22 +22,27 @@ class Superquadric:
         self.modelValues = self.createSuperquadric()
 
     def findPrimitive(self):
+
+        """
+            NOTE: Redundant
+            NOTE: Hard coded primitives, may be a bad fucking option but will do for now
+            
+        """
+
         match self.class_name:
             case "Can":
                 return "CYLINDER"
             case "Bottle":
-                return "CYLINDER"
+                return "SPHERE"
             case "Box":
                 return "CUBOID"
             case "Ball":
                 return "SPHERE"
             case _:
                 return "GENERAL"
-            
 
         """NOTE: Need to account for many more cases and multiple primitive objects"""
             
-
     def estimateE(self):
 
         """TODO: Check the accuracy of this method, is there any better ones in terms of accuracy and speed"""
@@ -67,106 +72,117 @@ class Superquadric:
         return e1, e2
 
     def createSuperquadric(self):
-        """Generate a 3D shape based on the specified type (e.g., sphere, cylinder, cone)."""
-        
-        # Get the centroid and estimated e values
-        c1, c2, c3 = self.pcd.getCentroid()
+    
         e1, e2 = self.e1, self.e2
 
-        # Control resolution
-        n_theta = 100  # Resolution in the vertical direction
-        n_phi = 100    # Resolution in the circular direction
+        boundingBox = self.pcd.getBoundingBox()
+
+        extent = boundingBox.extent
+ 
+        alpha1 = extent[0] / 2
+        alpha2 = extent[1] / 2
+        alpha3 = extent[2] / 2
+
+        # n_theta = 100
+        # n_phi = 100
+
+        # theta = np.linspace(-np.pi / 2, np.pi / 2, n_theta)
+        # phi = np.linspace(-np.pi, np.pi, n_phi)
+        # theta, phi = np.meshgrid(theta, phi)
+
+        # def fexp(base, exp):
+        #     return np.sign(base) * (np.abs(base) ** exp)
+
+        # cos_theta = np.cos(theta)
+        # sin_theta = np.sin(theta)
+        # cos_phi = np.cos(phi)
+        # sin_phi = np.sin(phi)
+
+        # x = fexp(cos_theta, e1) * fexp(cos_phi, e2)
+        # y = fexp(cos_theta, e1) * fexp(sin_phi, e2)
+        # z = fexp(sin_theta, e1)
+
+        eta_vals = np.linspace(-np.pi/2, np.pi/2, 50)      # latitude samples
+        omega_vals = np.linspace(-np.pi, np.pi, 50)        # longitude samples
+
+        eta_grid, omega_grid = np.meshgrid(eta_vals, omega_vals)
+
+        # Now compute x, y, z using the superquadric formula
+        x = alpha1 * np.sign(np.cos(eta_grid)) * np.abs(np.cos(eta_grid))**e1 * \
+            np.sign(np.cos(omega_grid)) * np.abs(np.cos(omega_grid))**e2
+
+        y = alpha2 * np.sign(np.cos(eta_grid)) * np.abs(np.cos(eta_grid))**e1 * \
+            np.sign(np.sin(omega_grid)) * np.abs(np.sin(omega_grid))**e2
+
+        z = alpha3 * np.sign(np.sin(eta_grid)) * np.abs(np.sin(eta_grid))**e1
+
+        # points = np.stack((x.flatten(), y.flatten(), z.flatten()), axis=1)
+
+        # axis_info = self.pcd.getAxis()
+        # if axis_info:
+        #     target_axis = axis_info["direction"] / np.linalg.norm(axis_info["direction"])
+        #     z_axis = np.array([0, 0, 1])
+        #     v = np.cross(z_axis, target_axis)
+        #     c = np.dot(z_axis, target_axis)
+
+        #     if np.linalg.norm(v) < 1e-8:
+        #         R = np.eye(3)
+        #     else:
+        #         vx = np.array([
+        #             [0, -v[2], v[1]],
+        #             [v[2], 0, -v[0]],
+        #             [-v[1], v[0], 0]
+        #         ])
+        #         R = np.eye(3) + vx + (vx @ vx) * ((1 - c) / (np.linalg.norm(v) ** 2))
+
+        #     points = points @ R.T
+
+        # min_p, max_p = points.min(axis=0), points.max(axis=0)
+        # unit_extent = max_p - min_p
+
+        # bbox_min = self.pcd.getBoundingBox().get_min_bound()
+        # bbox_max = self.pcd.getBoundingBox().get_max_bound()
+        # target_extent = bbox_max - bbox_min
+
+        # scale = target_extent / unit_extent
+        # points *= scale
+
+        # # 🌟 Align base of superquadric with lowest point in point cloud
+        # pcd_points = np.asarray(self.pcd.getPCD().points)
+        # pcd_min_z = np.min(pcd_points[:, 2])
+        # superquadric_min_z = np.min(points[:, 2])
+
+        # z_offset = pcd_min_z - superquadric_min_z
         
-        # Define the parameterization space
-        theta = np.linspace(-np.pi / 2, np.pi / 2, n_theta)  # Vertical angle for spherical and cone/cylinder height
-        phi = np.linspace(-np.pi, np.pi, n_phi)  # Circular angle for spherical and cylindrical symmetry
-        
-        # Create mesh grid
-        theta, phi = np.meshgrid(theta, phi)
-        
-        # Generate shape based on selected type
-        if self.primitive_shape == "SPHERE":
-            r = 1  # Radius for the sphere
-            x = r * np.cos(theta) * np.cos(phi)
-            y = r * np.cos(theta) * np.sin(phi)
-            z = r * np.sin(theta)
-            
-        elif self.primitive_shape == "CYLINDER":
-            r = 1  # Fixed radius for the cylinder
-            z = np.linspace(-1, 1, n_theta)  # Height range from -1 to 1
-            phi = np.linspace(0, 2 * np.pi, n_phi)  # Full circle for cylinder
-            z, phi = np.meshgrid(z, phi)
-            
-            x = r * np.cos(phi)  # Cylinder x-coordinate
-            y = r * np.sin(phi)  # Cylinder y-coordinate
-            
-        elif self.primitive_shape == "CONE":
-            r_max = 1  # Max radius at the base
-            z = np.linspace(-1, 1, n_theta)  # Height from -1 to 1
-            phi = np.linspace(0, 2 * np.pi, n_phi)  # Full circular range
-            z, phi = np.meshgrid(z, phi)
-            
-            # Scaling radius as z increases
-            r = r_max * (1 - (z / max(z)))  # Linear decrease of radius with height
-            x = r * np.cos(phi)
-            y = r * np.sin(phi)
-            
-        else:
-            raise ValueError(f"Unsupported shape type: {self.primitive_shape}")
-        
-        points = np.stack((x.flatten(), y.flatten(), z.flatten()), axis=1)
+        # if self.object_ID == 1: 
+        #     z_offset = z_offset - 0.02
 
-        # Align shape with point cloud's axis and bounding box
-        axis_info = self.pcd.getAxis()
-        if axis_info:
-            target_axis = axis_info["direction"] / np.linalg.norm(axis_info["direction"])
-            z_axis = np.array([0, 0, 1])
-            v = np.cross(z_axis, target_axis)
-            c = np.dot(z_axis, target_axis)
+        # xy_mean = np.mean(points[:, :2], axis=0)
+        # translation_offset = np.array([
+        #     c1 - xy_mean[0],
+        #     c2 - xy_mean[1],
+        #     z_offset
+        # ])
+        # points += translation_offset
+        axis = self.pcd.getAxis()  # 3x3 rotation matrix
+        center = self.pcd.getCentroid() # 3D centre of the bounding box
 
-            if np.linalg.norm(v) < 1e-8:
-                R = np.eye(3)
-            else:
-                vx = np.array([
-                    [0, -v[2], v[1]],
-                    [v[2], 0, -v[0]],
-                    [-v[1], v[0], 0]
-                ])
-                R = np.eye(3) + vx + (vx @ vx) * ((1 - c) / (np.linalg.norm(v) ** 2))
+        # Stack your generated superquadric grid into points
+        points = np.vstack((x.flatten(), y.flatten(), z.flatten())).T  # (N, 3)
 
-            points = points @ R.T
+        # Transform points:
+        #   - First rotate them using the OBB axes
+        #   - Then translate them to the OBB centre
+        points_transformed = points @ axis.T  # (N, 3)
 
-        # Scale shape based on bounding box of the point cloud
-        min_p, max_p = points.min(axis=0), points.max(axis=0)
-        unit_extent = max_p - min_p
+        # Unpack back to x_final, y_final, z_final in original grid shape
+        x_final = points_transformed[:, 0].reshape(x.shape) + center[0]
+        y_final = points_transformed[:, 1].reshape(y.shape) + center[1]
+        z_final = points_transformed[:, 2].reshape(z.shape) + center[2]
 
-        bbox_min = self.pcd.getBoundingBox().get_min_bound()
-        bbox_max = self.pcd.getBoundingBox().get_max_bound()
-        target_extent = bbox_max - bbox_min
-
-        scale = target_extent / unit_extent
-        points *= scale
-
-        # Align shape with the lowest point of the point cloud
-        pcd_points = np.asarray(self.pcd.getPCD().points)
-        pcd_min_z = np.min(pcd_points[:, 2])
-        shape_min_z = np.min(points[:, 2])
-
-        z_offset = pcd_min_z - shape_min_z
-        xy_mean = np.mean(points[:, :2], axis=0)
-        translation_offset = np.array([
-            c1 - xy_mean[0],
-            c2 - xy_mean[1] + 0.01,
-            z_offset - 0.01
-        ])
-        points += translation_offset
-
-        # Reshape the points back to the mesh grid
-        x_final = points[:, 0].reshape(x.shape)
-        y_final = points[:, 1].reshape(y.shape)
-        z_final = points[:, 2].reshape(z.shape)
 
         return x_final, y_final, z_final
+
 
     def alignWithICP(self, threshold=0.02):
         
@@ -223,3 +239,5 @@ class Superquadric:
 
     def updateSuperquadric(self):
         pass
+
+

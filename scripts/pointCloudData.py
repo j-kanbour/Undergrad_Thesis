@@ -35,7 +35,7 @@ class PointCloudData:
             return pcd
 
         # Efficient parameters
-        _, ind = pcd.remove_statistical_outlier(nb_neighbors=100, std_ratio=0.25)
+        _, ind = pcd.remove_statistical_outlier(nb_neighbors=500, std_ratio=0.25)
         return pcd.select_by_index(ind)
 
     def covertToPCD(self, raw_data_1, raw_depth, raw_mask, camera_info):
@@ -143,77 +143,15 @@ class PointCloudData:
             - May want to orientate this around the Axis
         """
 
-        return self.pcd.get_axis_aligned_bounding_box()
+        return self.pcd.get_oriented_bounding_box(True)
 
     def findCentroid(self):
-        """
-            Find the centroid of all data points by averaging points
-            
-            NOTE: There could be a more accurate way of doing this involving finding planes
-            on the obejct surface and finding the intesect of the centre normals
-            however this method workd for providing a rough estimate
-        """
-        return np.mean(np.asarray(self.pcd.points), axis=0)
+
+        # return np.mean(np.asarray(self.pcd.points), axis=0)
+        return self.pcd.get_center()
 
     def findAxis(self):
-        """
-            !!!!!!!!!!!!!!!
-            NOTE: REDUNDANT
-            !!!!!!!!!!!!!!!
-
-            Finds the main axis of the object for the superquadric to be orientated
-            Currently not sure how this works
-
-            NOTE: potentially works by following a line of regression
-            - may want to follow the major face (face with most points)
-        """
-
-        if self.pcd is None or len(self.pcd.points) == 0:
-            self.print("Cannot compute axis: Point cloud is empty.")
-            return None
-
-        # Copy the original cloud to preserve it
-        remaining_pcd = self.pcd
-
-        max_inliers = []
-
-        # Run RANSAC iteratively to find planes
-        for i in range(2):  # Try 5 planes
-            plane_model, inliers = remaining_pcd.segment_plane(
-                distance_threshold=0.01,
-                ransac_n=3,
-                num_iterations=1000
-            )
-
-            if len(inliers) > len(max_inliers):
-                max_inliers = inliers
-
-            # Remove inliers and continue
-            remaining_pcd = remaining_pcd.select_by_index(inliers, invert=True)
-
-        # If no face found, fallback to global PCA
-        if len(max_inliers) == 0:
-            self.print("No dominant face found, falling back to global PCA.")
-            return self.findAxis()
-
-        # Select points from best face
-        face_cloud = self.pcd.select_by_index(max_inliers)
-        points = np.asarray(face_cloud.points)
-
-        # Run PCA on face points
-        centroid = np.mean(points, axis=0)
-        centered_points = points - centroid
-
-        cov_matrix = np.cov(centered_points, rowvar=False)
-        eigenvalues, eigenvectors = np.linalg.eigh(cov_matrix)
-        idx = np.argsort(eigenvalues)[::-1]
-        principal_direction = eigenvectors[:, idx[0]]
-
-        # Return line through global centroid
-        return {
-            "origin": self.centroid,  # or use centroid of face if preferred
-            "direction": principal_direction / np.linalg.norm(principal_direction),
-        }
+        return self.boundingBox.R
 
     def getPCD(self):
         return self.pcd

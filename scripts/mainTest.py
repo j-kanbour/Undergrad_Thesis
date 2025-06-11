@@ -166,7 +166,7 @@ def test5(model):
     centroid.paint_uniform_color([1, 0, 0])
     centroid.translate(centroid_coords)
 
-    bbox = o3d.geometry.LineSet.create_from_axis_aligned_bounding_box(pointcloud.getBoundingBox())
+    bbox = o3d.geometry.LineSet.create_from_oriented_bounding_box(pointcloud.getBoundingBox())
     bbox.paint_uniform_color([0, 1, 0])
 
     vis = o3d.visualization.Visualizer()
