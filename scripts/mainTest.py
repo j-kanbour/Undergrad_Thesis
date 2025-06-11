@@ -174,7 +174,7 @@ def test5(model):
 
     vis.add_geometry(pointcloud.getPCD())
     #vis.add_geometry(superquadric.getSuperquadricAsPCD())
-    vis.add_geometry(superquadric.alignWithICP())
+    vis.add_geometry(superquadric.getAlignedPCD())
     vis.add_geometry(centroid)
     vis.add_geometry(bbox)
 

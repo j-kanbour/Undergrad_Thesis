@@ -10,10 +10,9 @@ class Superquadric:
         self.object_ID = object_ID
         self.class_name = class_name
 
-        self.primitive_shape = self.findPrimitive()
-
         #built point cloud from raw data
         self.pcd = PointCloudData(object_ID, input_type, raw_data_1, raw_depth, raw_mask, camera_info)
+
 
         #estimate values of e
         self.e1, self.e2 = self.estimateE()
@@ -21,27 +20,7 @@ class Superquadric:
         #determine superquadric values
         self.modelValues = self.createSuperquadric()
 
-    def findPrimitive(self):
-
-        """
-            NOTE: Redundant
-            NOTE: Hard coded primitives, may be a bad fucking option but will do for now
-            
-        """
-
-        match self.class_name:
-            case "Can":
-                return "CYLINDER"
-            case "Bottle":
-                return "SPHERE"
-            case "Box":
-                return "CUBOID"
-            case "Ball":
-                return "SPHERE"
-            case _:
-                return "GENERAL"
-
-        """NOTE: Need to account for many more cases and multiple primitive objects"""
+        self.aligned_PCD = self.alignWithICP()
             
     def estimateE(self):
 
@@ -184,12 +163,13 @@ class Superquadric:
         return x_final, y_final, z_final
 
 
-    def alignWithICP(self, threshold=0.02):
+    def alignWithICP(self):
         
         """NOTE: WTF is going on here"""
 
         source = self.getSuperquadricAsPCD()
         target = self.pcd.getPCD()
+        threshold=0.02
 
         # Optional: downsampling (safe, improves stability)
         voxel_size = threshold / 2
@@ -236,6 +216,9 @@ class Superquadric:
 
     def getPCD(self):
         return self.pcd
+    
+    def getAlignedPCD(self):
+        return self.aligned_PCD
 
     def updateSuperquadric(self):
         pass
