@@ -76,7 +76,10 @@ class Superquadric:
 
         elif re.search(r"ball", self.class_name):
             return 1, 1
-        
+        elif re.search(r"bowl", self.class_name):
+            return 0, 0
+        elif re.search(r"plate", self.class_name):
+            return 0, 0
         else:
             return self.estimateE()
         
