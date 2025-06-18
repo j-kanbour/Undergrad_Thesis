@@ -291,7 +291,9 @@ def test6(model):
     aligned_superquadric_pcd = superquadric.getAlignedPCD()
 
     # ===== GRASP GENERATION =====
-    grasps_generator = Grasps(aligned_superquadric_pcd)
+    grasps_generator = Grasps(superquadric)
+
+
     grasps = grasps_generator.getAllGrasps()
 
     # Final visualisation
@@ -299,7 +301,7 @@ def test6(model):
     vis.create_window(window_name="Target Object Point Cloud + Grasps")
 
     # Add object and aligned superquadric
-    #vis.add_geometry(pointcloud.getPCD())
+    vis.add_geometry(pointcloud.getPCD())
     vis.add_geometry(aligned_superquadric_pcd)
 
     # Add object and aligned superquadric

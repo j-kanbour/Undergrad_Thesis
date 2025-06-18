@@ -12,6 +12,10 @@ class PointCloudData:
 
         self.object_ID = object_ID
         self.input_type = input_type
+        self.raw_data_1 = raw_data_1
+        self.raw_depth = raw_depth
+        self.raw_mask = raw_mask
+        self.camera_info = camera_info
 
         self.pcd = self.covertToPCD(raw_data_1[0], raw_depth[0], raw_mask[0], camera_info)
 
@@ -112,7 +116,7 @@ class PointCloudData:
                 K = np.array(scene_info["cam_K"]).reshape(3, 3)
                 depth_scale = float(scene_info.get("depth_scale", 1.0))
 
-            return self._build_pcd_from_rgb_depth_mask(rgb, depth, mask, K, depth_scale)
+            return self._covertToPCD_helper_(rgb, depth, mask, K, depth_scale)
 
         elif self.input_type == 'RGBD':
             rgbd = np.load(raw_data_1) if raw_data_1.endswith(".npy") else cv2.imread(raw_data_1, cv2.IMREAD_UNCHANGED)
@@ -129,7 +133,7 @@ class PointCloudData:
                 K = np.array(scene_info["cam_K"]).reshape(3, 3)
                 depth_scale = float(scene_info.get("depth_scale", 1.0))
 
-            return self._build_pcd_from_rgb_depth_mask(rgb, depth, mask, K, depth_scale)
+            return self._covertToPCD_helper_(rgb, depth, mask, K, depth_scale)
 
         elif self.input_type == 'RGBD STREAM':
             rgbd = raw_data_1
@@ -143,7 +147,7 @@ class PointCloudData:
             K = np.array(camera_info["cam_K"]).reshape(3, 3)
             depth_scale = float(camera_info.get("depth_scale", 1.0))
 
-            return self._build_pcd_from_rgb_depth_mask(rgb, depth, mask, K, depth_scale)
+            return self._covertToPCD_helper_(rgb, depth, mask, K, depth_scale)
 
         else:
             self.print(f"Invalid input_type: {self.input_type}")
@@ -175,6 +179,16 @@ class PointCloudData:
 
     def getAxis(self):
         return self.axis
+    
+    def getRawData(self):
+        return {
+            "object_ID" : self.object_ID,
+            "input_type" : self.input_type,
+            "raw_data_1" : self.raw_data_1,
+            "raw_depth" : self.raw_depth,
+            "raw_mask" : self.raw_mask,
+            "camera_info" : self.camera_info
+        }
 
     def update(self):
         pass
