@@ -294,11 +294,21 @@ def test6(model):
     grasps_generator = Grasps(superquadric)
 
 
-    grasps = grasps_generator.getAllGrasps()
+    grasps = grasps_generator.getSelectedGrasps()
+    print(grasps)
 
     # Final visualisation
     vis = o3d.visualization.Visualizer()
     vis.create_window(window_name="Target Object Point Cloud + Grasps")
+
+    offset = np.array([0, 0, -0.05])  # 5 cm behind object along camera Z
+    frame_position = centroid_coords + offset
+    object_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.05)
+    object_frame.translate(frame_position)
+    vis.add_geometry(object_frame)
+
+    bbox = o3d.geometry.LineSet.create_from_oriented_bounding_box(pointcloud.getBoundingBox())
+    bbox.paint_uniform_color([0, 1, 0])
 
     # Add object and aligned superquadric
     vis.add_geometry(pointcloud.getPCD())
@@ -319,42 +329,45 @@ def test6(model):
     # Prepare and add grasp point spheres + axes (draw together to match)
     axis_scale = 0.1  # length of axis lines
 
-    for grasp in grasps:
-        # ===== Show normal at point_i =====
-        point_i = grasp["point_i"]
-        n_i = grasp["point_i_normals"]
-        normal_length = axis_scale * 0.5  # shorter for normals
+    if grasps == None: 
+        print("no possible grassps")
+    else:
+        for grasp in grasps:
+            # ===== Show normal at point_i =====
+            point_i = grasp["point_i"]
+            n_i = grasp["point_i_normals"]
+            normal_length = axis_scale * 0.5  # shorter for normals
 
-        n_i_end = point_i + n_i * normal_length
-        n_i_arrow = o3d.geometry.LineSet(
-            points=o3d.utility.Vector3dVector([point_i, n_i_end]),
-            lines=o3d.utility.Vector2iVector([[0, 1]])
-        )
-        n_i_arrow.paint_uniform_color([1, 0, 0])  # yellow normal
-        vis.add_geometry(n_i_arrow)
+            n_i_end = point_i + n_i * normal_length
+            n_i_arrow = o3d.geometry.LineSet(
+                points=o3d.utility.Vector3dVector([point_i, n_i_end]),
+                lines=o3d.utility.Vector2iVector([[0, 1]])
+            )
+            n_i_arrow.paint_uniform_color([1, 0, 0])  # yellow normal
+            vis.add_geometry(n_i_arrow)
 
-        # ===== Show normal at point_j =====
-        point_j = grasp["point_j"]
-        n_j = grasp["point_j_normals"]
+            # ===== Show normal at point_j =====
+            point_j = grasp["point_j"]
+            n_j = grasp["point_j_normals"]
 
-        n_j_end = point_j + n_j * normal_length
-        n_j_arrow = o3d.geometry.LineSet(
-            points=o3d.utility.Vector3dVector([point_j, n_j_end]),
-            lines=o3d.utility.Vector2iVector([[0, 1]])
-        )
-        n_j_arrow.paint_uniform_color([1, 0, 1])  # yellow normal
-        vis.add_geometry(n_j_arrow)
+            n_j_end = point_j + n_j * normal_length
+            n_j_arrow = o3d.geometry.LineSet(
+                points=o3d.utility.Vector3dVector([point_j, n_j_end]),
+                lines=o3d.utility.Vector2iVector([[0, 1]])
+            )
+            n_j_arrow.paint_uniform_color([1, 0, 1])  # yellow normal
+            vis.add_geometry(n_j_arrow)
 
-        # ===== Optionally, still show point_i and point_j =====
-        point_i_sphere = o3d.geometry.TriangleMesh.create_sphere(radius=0.001)
-        point_i_sphere.paint_uniform_color([1, 0, 1])  # magenta
-        point_i_sphere.translate(point_i)
-        vis.add_geometry(point_i_sphere)
+            # ===== Optionally, still show point_i and point_j =====
+            point_i_sphere = o3d.geometry.TriangleMesh.create_sphere(radius=0.001)
+            point_i_sphere.paint_uniform_color([1, 0, 1])  # magenta
+            point_i_sphere.translate(point_i)
+            vis.add_geometry(point_i_sphere)
 
-        point_j_sphere = o3d.geometry.TriangleMesh.create_sphere(radius=0.001)
-        point_j_sphere.paint_uniform_color([1, 0, 1])  # magenta
-        point_j_sphere.translate(point_j)
-        vis.add_geometry(point_j_sphere)
+            point_j_sphere = o3d.geometry.TriangleMesh.create_sphere(radius=0.001)
+            point_j_sphere.paint_uniform_color([1, 0, 1])  # magenta
+            point_j_sphere.translate(point_j)
+            vis.add_geometry(point_j_sphere)
 
 
     # Visual options

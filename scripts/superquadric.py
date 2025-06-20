@@ -121,28 +121,27 @@ class Superquadric:
         z_final = points_transformed[:, 2].reshape(z.shape) + center[2]
 
         return x_final, y_final, z_final
-
     def alignWithICP(self):
-        
-        """NOTE: WTF is going on here"""
+        """
+        Aligns the raw superquadric to the visible point cloud using Point-to-Point ICP,
+        transforms the parametric mesh points, and estimates surface normals.
+        """
 
         s = self.rawSuperquadric
         t = self.pcd.getPCD()
 
-        # Safe deep copies
         source = copy.deepcopy(s)
         target = copy.deepcopy(t)
 
-        threshold=0.02
-
-        # Optional: downsampling (safe, improves stability)
+        threshold = 0.02
         voxel_size = threshold / 2
+
+        # Optional downsampling (improves ICP stability)
         source_down = source.voxel_down_sample(voxel_size)
         target_down = target.voxel_down_sample(voxel_size)
 
         trans_init = np.eye(4)
 
-        # Use PointToPoint ICP — much safer for parametric model
         reg_p2p = o3d.pipelines.registration.registration_icp(
             source_down, target_down, threshold, trans_init,
             o3d.pipelines.registration.TransformationEstimationPointToPoint()
@@ -150,26 +149,48 @@ class Superquadric:
         self.print("ICP Fitness:", reg_p2p.fitness)
         self.print("ICP Inlier RMSE:", reg_p2p.inlier_rmse)
 
-        # Apply transformation to your modelValues
+        # Transform model values
         x, y, z = self.modelValues
         points = np.vstack((x.flatten(), y.flatten(), z.flatten())).T
         points_hom = np.hstack((points, np.ones((points.shape[0], 1))))
         transformed_points = (reg_p2p.transformation @ points_hom.T).T[:, :3]
 
-        # Reshape back to original shapes
         x_final = transformed_points[:, 0].reshape(x.shape)
         y_final = transformed_points[:, 1].reshape(y.shape)
         z_final = transformed_points[:, 2].reshape(z.shape)
-
         self.modelValues = (x_final, y_final, z_final)
 
-        # Return aligned superquadric PCD
+        # Create final aligned point cloud
         aligned_pcd = o3d.geometry.PointCloud()
         aligned_pcd.points = o3d.utility.Vector3dVector(transformed_points)
-        aligned_pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.01, max_nn=100))
-        aligned_pcd.orient_normals_consistent_tangent_plane(k=10)
+
+        # Step 1: estimate normals (safe)
+        aligned_pcd.estimate_normals(
+            search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.01, max_nn=100)
+        )
+
+        # Step 2: optionally orient normals (on downsampled points to avoid Qhull crash)
+        try:
+            aligned_down = aligned_pcd.voxel_down_sample(voxel_size=0.005)
+            aligned_down.estimate_normals(
+                search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.01, max_nn=30)
+            )
+            aligned_down.orient_normals_consistent_tangent_plane(k=10)
+
+            # Transfer normals back (approximate)
+            from scipy.spatial import cKDTree
+            source_points = np.asarray(aligned_down.points)
+            source_normals = np.asarray(aligned_down.normals)
+            full_points = np.asarray(aligned_pcd.points)
+
+            tree = cKDTree(source_points)
+            _, indices = tree.query(full_points)
+            aligned_pcd.normals = o3d.utility.Vector3dVector(source_normals[indices])
+        except Exception as e:
+            self.print("Normal orientation skipped (safe fallback):", e)
 
         return aligned_pcd
+
 
     def createSuperquadricAsPCD(self):
         """Builds PCD based on superquadric values"""
