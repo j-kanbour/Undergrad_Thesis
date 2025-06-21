@@ -192,3 +192,15 @@ class PointCloudData:
 
     def update(self):
         pass
+
+
+"""
+
+    TODO 
+
+    Need to integrate with ROS and robot to handle data streaming
+    
+    - Will need to change how data is handled and red by all other components (grasps, superquadrics)
+    - Fing way to remove the need for generating point cloud object and making claculation straight from depth image
+
+"""

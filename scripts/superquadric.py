@@ -214,3 +214,16 @@ class Superquadric:
         pass
 
 
+"""
+
+    TODO
+    
+    More specific superquadric shape for primitive objects (e.g. box, cylinder, ball, ...)
+
+    Better ICP alignment to partial point cloud
+
+    If properly alligned can provide for better 6DOF Pose Estimation
+
+"""
+
+
