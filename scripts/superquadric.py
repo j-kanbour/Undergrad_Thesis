@@ -87,40 +87,49 @@ class Superquadric:
     def createSuperquadric(self):
 
         e1, e2 = self.e1, self.e2
-
         boundingBox = self.pcd.getBoundingBox()
         extent = boundingBox.extent
- 
+
         alpha1 = extent[0] / 2
         alpha2 = extent[1] / 2
         alpha3 = extent[2] / 2
 
-        def fexp(x,p):
-            return (np.sign(x) * (np.abs(x)**p))
+        def fexp(x, p):
+            return np.sign(x) * (np.abs(x) ** p)
 
-        phi, theta = np.mgrid[0:np.pi:80j, 0:2*np.pi:80j]
+        # Special handling for concave shapes
+        if self.class_name in ['bowl', 'plate']:
+            # For a bowl or plate, model only the top hemisphere
+            phi = np.linspace(0, np.pi / 2, 80)
+            theta = np.linspace(0, 2 * np.pi, 80)
+            phi, theta = np.meshgrid(phi, theta)
 
-        x = alpha1 * (fexp(np.sin(phi),e1)) * (fexp(np.cos(theta),e2))
-        y = alpha2 * (fexp(np.sin(phi),e1)) * (fexp(np.sin(theta),e2))
-        z = alpha3 * (fexp(np.cos(phi),e1))
-        
-        axis = self.pcd.getAxis()  # 3x3 rotation matrix
-        center = self.pcd.getCentroid() # 3D centre of the bounding box
+            # Inverted z for concavity, and reduced z-scale for plate
+            z_scale = 0.5 if self.class_name == 'plate' else 1.0
 
-        # Stack your generated superquadric grid into points
-        points = np.vstack((x.flatten(), y.flatten(), z.flatten())).T  # (N, 3)
+            x = alpha1 * fexp(np.sin(phi), e1) * fexp(np.cos(theta), e2)
+            y = alpha2 * fexp(np.sin(phi), e1) * fexp(np.sin(theta), e2)
+            z = -alpha3 * fexp(np.cos(phi), e1) * z_scale  # Inverted for concavity
+        else:
+            # Regular superquadric
+            phi, theta = np.mgrid[0:np.pi:80j, 0:2 * np.pi:80j]
 
-        # Transform points:
-        #   - First rotate them using the OBB axes
-        #   - Then translate them to the OBB centre
-        points_transformed = points @ axis.T  # (N, 3)
+            x = alpha1 * fexp(np.sin(phi), e1) * fexp(np.cos(theta), e2)
+            y = alpha2 * fexp(np.sin(phi), e1) * fexp(np.sin(theta), e2)
+            z = alpha3 * fexp(np.cos(phi), e1)
 
-        # Unpack back to x_final, y_final, z_final in original grid shape
+        axis = self.pcd.getAxis()
+        center = self.pcd.getCentroid()
+
+        points = np.vstack((x.flatten(), y.flatten(), z.flatten())).T
+        points_transformed = points @ axis.T
+
         x_final = points_transformed[:, 0].reshape(x.shape) + center[0]
         y_final = points_transformed[:, 1].reshape(y.shape) + center[1]
         z_final = points_transformed[:, 2].reshape(z.shape) + center[2]
 
         return x_final, y_final, z_final
+
     def alignWithICP(self):
         """
         Aligns the raw superquadric to the visible point cloud using Point-to-Point ICP,
@@ -223,6 +232,8 @@ class Superquadric:
     Better ICP alignment to partial point cloud
 
     If properly alligned can provide for better 6DOF Pose Estimation
+
+    Model Convex objects (i.e. bowl and cup)
 
 """
 

@@ -1,5 +1,5 @@
 import open3d as o3d
-from scipy.spatial import KDTree
+from scipy.spatial import cKDTree
 import numpy as np
 import json
 import cv2
@@ -27,7 +27,7 @@ class Grasps:
         self.allGrasps = self.generateGrasps()
         self.selectedGrasps = self.selectGrasps()
 
-    def generateGrasps(self, num_grasps=10000, d_thresh=1.0, angle_thresh_deg=0.5):
+    def generateGrasps(self, num_grasps=10000, d_thresh=1.0):
         """
         Generates a list of antipodal grasp point pairs from a superquadric surface point cloud.
 
@@ -70,12 +70,21 @@ class Grasps:
             if dist > d_thresh:
                 continue
 
-            normal1 = normal1 / np.linalg.norm(normal1)  # ensure it's a unit vector
-            y_axis = np.array([0, 1, 0])
-            dot = np.dot(normal1, y_axis)
+            # Vector from point1 to point2
+            vec = point2 - point1
+            vec_norm = vec / np.linalg.norm(vec)
 
-            # Angle from XZ plane = angle between normal and Y-axis
-            angle_rad = np.arcsin(np.clip(abs(dot), -1.0, 1.0))  # deviation from parallel to XZ
+            # Project vec onto the XZ plane by zeroing the Y component
+            vec_xz = vec.copy()
+            vec_xz[1] = 0
+
+            # Normalize the projection
+            vec_xz_norm = vec_xz / np.linalg.norm(vec_xz)
+
+            # Compute angle between vec and its XZ projection
+            dot = np.dot(vec_norm, vec_xz_norm)
+            dot = np.clip(dot, -1.0, 1.0)  # Ensure within domain of arccos
+            angle_rad = np.arccos(dot)
             angle_deg = np.degrees(angle_rad)
 
             # Create grasp pose
@@ -87,8 +96,9 @@ class Grasps:
                 "point_j": point2.copy(),
                 "point_j_normals": normal2.copy(),
                 "jaw_width": dist,
-                "angle_to_xz": angle_deg  # angle between approach and XZ plane
+                "angle_to_xz": angle_deg  # angle between the line and the XZ plane
             }
+
 
             candidate_grasps.append(grasp_pose)
             used_indices.update([i, second_index])
@@ -159,7 +169,10 @@ class Grasps:
 
         return not (occluded_i or occluded_j)
 
-    def horizontalPlace(self, grasp, angle_thresh_deg=10):
+    def horizontalPlace(self, grasp, angle_thresh_deg=1):
+
+        #NOTE IS it right to have this relative to the image, 
+
         if not self.flat_plane_only:
             return True  # Allow all grasps if unrestricted
 
@@ -170,60 +183,33 @@ class Grasps:
         # Small angle → normal is close to XZ plane (i.e., grasp is horizontal)
         return angle <= angle_thresh_deg
         
-    def crossVisibleSurface(self, grasp, threshold=0.02):
+    def checkDepth(self, grasp, depth=0.02):
         """
-        Ensures that the grasp crosses the visible object surface from one side to the other,
-        and that the approach is directed into the visible part of the object.
+        Ensures that the grasp is a maximum of 'depth' deep into the side of the superquadric.
+
+        Parameters:
+            grasp: dict containing grasp information (see docstring above)
+            depth: maximum allowed depth into the object
 
         Returns:
-            True if the grasp crosses the object and is visible-side-inward.
+            True if the grasp is <= depth from the surface, False otherwise.
         """
+        print(np.min(np.asarray(self.superquadric.points), axis=0))
+        print(np.max(np.asarray(self.superquadric.points), axis=0))
 
-        visible_points = np.asarray(self.object_pcd.points)
-        if len(visible_points) == 0:
-            return False
+        # Midpoint of the grasp
+        midpoint = (grasp["point_i"] + grasp["point_j"]) / 2.0
 
-        # Build KD-Tree for surface distance checking
-        tree = KDTree(visible_points)
+        # Build a KDTree from the superquadric point cloud if not already built
+        if not hasattr(self, "_sq_kdtree"):
+            points = np.asarray(self.superquadric.points)
+            self._sq_kdtree = cKDTree(points)
 
-        p1 = grasp["point_i"]
-        p2 = grasp["point_j"]
-        midpoint = (p1 + p2) / 2.0
+        # Query nearest surface point
+        dist, _ = self._sq_kdtree.query(midpoint)
 
-        # Check if midpoint lies near the object surface
-        midpoint_dist, _ = tree.query(midpoint)
-        if midpoint_dist > threshold:
-            return False
-
-        # Use PCA to estimate the principal direction (e.g., object’s left-right axis)
-        from sklearn.decomposition import PCA
-        pca = PCA(n_components=1)
-        pca.fit(visible_points)
-        principal_axis = pca.components_[0]
-
-        # Ensure the principal axis always points toward the camera (arbitrary)
-        if principal_axis[2] > 0:
-            principal_axis = -principal_axis
-
-        # Project both grasp points onto the principal axis
-        proj1 = np.dot(p1 - midpoint, principal_axis)
-        proj2 = np.dot(p2 - midpoint, principal_axis)
-
-        # Check if points lie on opposite sides (i.e., signs of projections differ)
-        if proj1 * proj2 >= 0:
-            return False  # not crossing the visible surface
-
-        # Check that the approach vector is directed into the visible side
-        v_ij = p2 - p1  # grasp direction
-        approach_axis = v_ij / np.linalg.norm(v_ij)
-
-        # We want grasp to enter towards the object — so approach should oppose principal axis
-        dot = np.dot(approach_axis, principal_axis)
-        if dot > 0:
-            return False  # grasp moves away from the visible side
-
-        return True  # all conditions met
-
+        # Check if grasp is shallow enough
+        return dist <= depth
 
     def checkAntipodal(self, grasp, normal_dot_thresh=-0.0, alignment_thresh=0.0):
         # Extract point and normal data
@@ -273,7 +259,7 @@ class Grasps:
         # object_pcd = self.superquadric.getPCD()
         #return self.allGrasps
         for grasp in self.allGrasps:
-            if self.checkAntipodal(grasp) and self.checkCollision(grasp) and self.crossVisibleSurface(grasp):
+            if self.checkAntipodal(grasp) and self.checkDepth(grasp):
                 print('\n',grasp,'\n')
                 return [grasp]
         
@@ -282,3 +268,27 @@ class Grasps:
     
     def getSelectedGrasps(self):
         return self.selectedGrasps
+    
+
+"""
+
+    TODO
+    
+    Grasp selecter needs to select a grasp which:
+
+    - is antipodal grasps (opposing normals)
+    - is not obstructed by another object
+    - Grasp should be towards the edge of the object (D mm form the border of the object), depending on the depth of the gripper
+
+    - Grasping from the side:
+        - The grasp crosses over the visible side of the object
+        - If a horozontal grasp is needed: the grasp needs to be parallel to the ground 
+        - If a non horozontal grasp is neede: angled grasps are possible
+
+    - Grasping from the top:
+        - The grasp crosses over the visible top of the object
+        - If the object is convave: need to grip from the rim
+        - If the object is convex: need to grip the outside 
+
+
+"""
