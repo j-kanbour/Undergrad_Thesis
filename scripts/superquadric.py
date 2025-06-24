@@ -7,14 +7,14 @@ import math
 import re
 
 class Superquadric:
-    def __init__(self, object_ID, class_name, input_type, raw_data_1, raw_depth=None, raw_mask=None, camera_info=None):
+    def __init__(self, object_ID, class_name, input_type, raw_data_1,  bbox=None, raw_depth=None, raw_mask=None, camera_info=None):
         self.print = lambda *args, **kwargs: print("Superquadric:", *args, **kwargs)
 
         self.object_ID = object_ID
         self.class_name = class_name.lower()
 
         #built point cloud from raw data
-        self.pcd = PointCloudData(object_ID, input_type, raw_data_1, raw_depth, raw_mask, camera_info)
+        self.pcd = PointCloudData(object_ID, input_type, raw_data_1, bbox, raw_depth, raw_mask, camera_info)
 
         #estimate values of e
         self.e1, self.e2 = self.defineE()
