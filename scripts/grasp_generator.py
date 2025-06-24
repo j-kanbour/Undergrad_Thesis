@@ -1,23 +1,4 @@
-#!/usr/bin/env python3
-
-"""
-    Description: Rosnode used to generate grasp poses for quick and accurate grasping
-
-    Author: Jayden Kanbour
-
-    Subscribers:
-
-        '/hsrb/head_rgbd_sensor/rgb/image_raw',                 Type = Image
-        '/hsrb/head_rgbd_sensor/depth_registered/image_raw',    Type = Image
-        '/hsrb/head_rgbd_sensor/depth_registered/camera_info',  Type = CameraInfor
-        '/unsw_vision/detections/objects/positions',            Type = unsw_vision_msgs/DetectionList
-
-    Publishers:
-
-        '/grasp_pose'                                           Type = Pose ????
-
-""" 
-
+#!/usr/bin/env python3.8
 import rospy
 import os
 import sys
@@ -31,7 +12,7 @@ import sensor_msgs.point_cloud2 as pc2
 from cv_bridge import CvBridge
 
 module_path = os.environ.get("UNSW_WS")
-sys.path.append(module_path + "/src/utils/src") #NOTE change to "/VISION/utils/src" on robot
+sys.path.append(module_path + "/src/utils/src")  # NOTE: Change to "/VISION/utils/src" on robot
 
 class GraspGenerator():
     def __init__(self):
@@ -40,132 +21,108 @@ class GraspGenerator():
 
         self.rgb_sub = message_filters.Subscriber('/hsrb/head_rgbd_sensor/rgb/image_raw', Image)
         self.depth_sub = message_filters.Subscriber('/hsrb/head_rgbd_sensor/depth_registered/image_raw', Image)
-        self.camera_info_sub = rospy.Subscriber('/hsrb/head_rgbd_sensor/depth_registered/camera_info', CameraInfo)
-        
-        #synchronise the rgb and depth camera messages
+        self.camera_info_sub = rospy.Subscriber('/hsrb/head_rgbd_sensor/depth_registered/camera_info', CameraInfo, callback=self.camera_info_callback)
+
+        # Synchronise the rgb and depth camera messages
         self.sync = message_filters.ApproximateTimeSynchronizer(
             [self.rgb_sub, self.depth_sub], queue_size=10, slop=0.1
         )
         self.sync.registerCallback(self.main_callback)
 
-        #subscribe to unsw_vision_msgs/DetectionList messages and track last message
-        #TODO messgae beth for an example of the new message
+        # Subscribe to detection list
         self.detection_msg = []
         self.detection_sub = rospy.Subscriber('/unsw_vision/detections/objects/positions', DetectionList, callback=self.detections_callback)
         self.last_detection_time = rospy.Time.now()
         self.detection_timer = rospy.Timer(rospy.Duration(2.0), self.check_detection_timeout)
 
-        rospy.loginfo('point_extraction_node')
-    
+        # Point cloud publisher
+        self.point_cloud_pub = rospy.Publisher('/superquadric_pointcloud', PointCloud2, queue_size=10)
+
+        self.latest_camera_info = None
+
+        rospy.loginfo('GraspGenerator node initialized')
+
+    def camera_info_callback(self, msg):
+        self.latest_camera_info = msg
+
     def detections_callback(self, detection_msg):
         self.last_detection_time = rospy.Time.now()
         self.detection_msg = detection_msg
 
     def check_detection_timeout(self, _):
-        #if unsw_vision hasnt published in (2 seconds), remove tracked objects
-        if (rospy.Time.now() - self.last_detection_time).to_sec() > 2.0: #TODO can change to a parameter 
-            self.detections_callback([])
+        if (rospy.Time.now() - self.last_detection_time).to_sec() > 2.0:
+            self.detection_msg = []
 
     def main_callback(self, rgb_msg, depth_msg):
-
         try:
             if self.detection_msg and self.detection_msg.objects:
-                # Convert image messages to OpenCV format
                 rgb_image = self.bridge.imgmsg_to_cv2(rgb_msg, 'bgr8')
                 depth_image = self.bridge.imgmsg_to_cv2(depth_msg, desired_encoding="passthrough")
-                
-                # Extract camera intrinsics
-                camera_intrinsics = np.array([
-                    [self.camera_info_msg.K[0], 0, self.camera_info_msg.K[2]],
-                    [0, self.camera_info_msg.K[4], self.camera_info_msg.K[5]],
-                    [0, 0, 1]
-                ])
 
                 all_models = []
                 for obj in self.detection_msg.objects:
-                    if obj.object_class in ['box']: #TODO set target objects as parameter, leave blank for all
-
-                        """
-                            TODO: Superquadric Generator
-
-                            Input: 
-                            - rgb image
-                            - depth image
-                            - mask
-                            - camera intrinsics
-
-                            Output:
-                            - Superquadric estimation model of object
-
-                            Function calls:
-                            - superquadrics.py --> Superquadric Class Obejct
-
-                        """
+                    if obj.object_class in ['cup']:  # Target objects
 
                         superquadric = Superquadric(
-                            object_id = obj.tracking_id,
-                            class_name = obj.object_class,
-                            bbox = obj.bbox, #NOTE: TEMP till we have a mask
-                            input_type = "RGBD STREAM",
-                            raw_data_1 = rgb_image,
-                            raw_depth = depth_image,
-                            raw_mask = None, #TODO GET MASK
-                            camera_info = camera_intrinsics
+                            object_ID=obj.tracking_id,
+                            class_name=obj.object_class,
+                            input_type="RGBD STREAM",
+                            raw_data_1=rgb_image,
+                            bbox=obj.bbox,
+                            raw_depth=depth_image,
+                            raw_mask=None,  # Optional
+                            camera_info=self.latest_camera_info
                         )
 
-                        if superquadric:
-                            all_models.append(superquadric)
-                
-                all_grasps = []
-                for model in all_models:
-                    """
-                        TODO: Grasp Generator
+                        if superquadric and superquadric.pcd:
+                            all_models.append(superquadric.getAlignedPCD())
 
-                        Input:
-                        - Superquadric PCD
-
-                        Output:
-                        - Grasp pose
-                    
-                    """
-                    grasp = Grasps(model)
-
-                    if grasp:
-                        all_grasps.append(grasp)
-
-                # If grasps exist, publish them
-                #final_grasps = np.vstack(all_models) if all_models else np.empty((0, 3), dtype=np.float32)
-
+                if all_models:
+                    self.publish_combined_point_cloud(all_models, rgb_msg.header)
+                else:
+                    rospy.loginfo("No valid superquadric models to publish.")
             else:
                 rospy.loginfo("No detected objects.")
-                final_grasps = np.empty((0, 3), dtype=np.float32)
-
-            self.publish_grasp(final_grasps, depth_msg.header)
-
         except Exception as e:
             rospy.logerr(f"Error in synchronized callback: {e}")
 
-    def publish_grasp(self, grasps, header):
+    def convert_o3d_to_ros_cloud(self, cloud_o3d, frame_id="head_rgbd_sensor_rgb_frame"):
+        points = np.asarray(cloud_o3d.points)
+        colors = np.asarray(cloud_o3d.colors)
+        print(colors)
 
-        """
-            FIXME: I don't know whats going on here yet
-        """
+        if points.shape[0] == 0:
+            return None
 
-        # Use the incoming message's header for frame alignment
-        header.frame_id = header.frame_id or "camera_rgb_optical_frame"
+        rgb_packed = (colors * 255).astype(np.uint8)
+        rgb_packed = rgb_packed[:, 0] << 16 | rgb_packed[:, 1] << 8 | rgb_packed[:, 2]
 
-        if not grasps:
-            rospy.logwarn("No grasps detected. Publishing empty msg.")
+        cloud_data = []
+        for i in range(points.shape[0]):
+            x, y, z = points[i]
+            # print(rgb_packed)
+            # rgb = rgb_packed[i]
+            cloud_data.append([x, y, z])
 
-        # Create an empty point cloud if there are no points
-        grasp_msg = None
+        fields = [
+            PointField('x', 0, PointField.FLOAT32, 1),
+            PointField('y', 4, PointField.FLOAT32, 1),
+            PointField('z', 8, PointField.FLOAT32, 1)
+            # PointField('rgb', 12, PointField.UINT32, 1)
+        ]
 
-        # Publish
-        self.point_cloud_pub.publish(grasp_msg)
-        rospy.loginfo("Published segmented object point cloud.")
+        cloud_msg = pc2.create_cloud(rospy.Header(frame_id=frame_id, stamp=rospy.Time.now()), fields, cloud_data)
+        return cloud_msg
+
+    def publish_combined_point_cloud(self, models, header):
+        combined_cloud_data = []
+
+        for model in models:
+            cloud_msg = self.convert_o3d_to_ros_cloud(model, frame_id=header.frame_id)
+            if cloud_msg:
+                self.point_cloud_pub.publish(cloud_msg)
+                rospy.loginfo(f"Published point cloud for object")
 
 if __name__ == "__main__":
     node = GraspGenerator()
     rospy.spin()
-
-

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3.8
 import numpy as np
 import open3d as o3d
 import cv2
@@ -112,7 +113,7 @@ class PointCloudData:
                 mask = raw_mask.astype(bool)
             elif bbox is not None:
                 # [x, y, w, h] = bbox → generate mask using OpenCV GrabCut
-                x, y, w, h = bbox
+                x, y, w, h = bbox.x, bbox.y, bbox.width, bbox.height
 
                 # Initialize mask for GrabCut
                 grabcut_mask = np.zeros(raw_data_1.shape[:2], np.uint8)

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3.8
 from pointCloudData import PointCloudData
 import numpy as np
 import open3d as o3d
