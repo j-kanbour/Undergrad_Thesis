@@ -3,28 +3,47 @@ from scipy.spatial import cKDTree
 import numpy as np
 import json
 import cv2
+from geometry_msgs.msg import Pose
+from tf.transformations import quaternion_from_matrix
+
 
 class Grasps:
     def __init__(self, superquadric, flat_plane_only = True):
 
         self.print = lambda *args, **kwargs: print("Grasps:", *args, **kwargs)
 
+        print(1)
         self.superquadric = superquadric.getAlignedPCD()
-        self.depth = cv2.imread(superquadric.getPCD().getRawData()["raw_depth"][0], cv2.IMREAD_UNCHANGED)
+        print(1.1)
+        self.depth = superquadric.getPCD().getRawData()["raw_depth"]
+        print(1.2)
         self.depth_map = o3d.geometry.Image(self.depth.astype(np.uint16))
-        self.mask = cv2.imread(superquadric.getPCD().getRawData()["raw_mask"][0], cv2.IMREAD_GRAYSCALE)
+        print(1.3)
+        self.mask = cv2.imread(superquadric.getPCD().getRawData()["raw_mask"], cv2.IMREAD_GRAYSCALE)
+        print(1.4)
         self.camera_info = superquadric.getPCD().getRawData()["camera_info"]
+        
+        print(2)
 
-        with open(self.camera_info, 'r') as f:
-            scene_info = json.load(f)["0"]
-            self.K = np.array(scene_info["cam_K"]).reshape(3, 3)
-            self.depth_scale = float(scene_info.get("depth_scale", 1.0))
+        self.K = np.array(self.camera_info.K).reshape(3, 3)
+        self.fx = self.K[0, 0]
+        self.fy = self.K[1, 1]
+        self.cx = self.K[0, 2]
+        self.cy = self.K[1, 2]
+        self.w = self.camera_info.width
+        self.h = self.camera_info.height
+        self.depth_scale = 0.001
+
+
+        print(3)
 
         self.object_pcd = superquadric.getPCD().getPCD()
 
+        print(4)
         self.flat_plane_only = flat_plane_only
-
+        print(5)
         self.allGrasps = self.generateGrasps()
+        print(6)
         self.selectedGrasps = self.selectGrasps()
 
     def generateGrasps(self, num_grasps=10000, d_thresh=1.0):
@@ -123,29 +142,22 @@ class Grasps:
         """
         # ===== Get camera intrinsics =====
 
-        with open(self.camera_info, 'r') as f:
-            scene_info = json.load(f)["0"]
-            K = np.array(scene_info["cam_K"]).reshape(3, 3)
-            depth_scale = float(scene_info.get("depth_scale", 1.0))
-        fx, fy = K[0, 0], K[1, 1]
-        cx, cy = K[0, 2], K[1, 2]
-
         height, width = self.depth.shape
-        depth = self.depth.astype(np.float32) / depth_scale  # Convert to metres
+        depth = self.depth.astype(np.float32) / self.depth_scale  # Convert to metres
         mask = self.mask  # 8-bit single-channel image
 
         def is_occluded(p):
             X, Y, Z = p
 
             # Project to image space
-            u = int(round((X * fx) / Z + cx))
-            v = int(round((Y * fy) / Z + cy))
+            u = int(round((X * self.fx) / Z + self.cx))
+            v = int(round((Y * self.fy) / Z + self.cy))
 
             if not (0 <= u < width and 0 <= v < height):
                 return True  # Out of bounds
 
             # Create margin window (within 10 mm radius)
-            pixel_radius = int(margin * fx / Z)  # convert to pixel size based on fx
+            pixel_radius = int(margin * self.fx / Z)  # convert to pixel size based on fx
 
             # Extract ROI around (u, v)
             u_min = max(0, u - pixel_radius)
@@ -237,32 +249,76 @@ class Grasps:
 
         return True
 
+    # def selectGrasps(self):
+    #     """
+    #         Selection priority list: 
+    #             - no other obsticles in the way
+    #             - points corss over the visible surface of the actual object
+    #             - possible force closure
+    #             - Aligned with estimated 6-DOF Pose Estimation
+    #             - Prepare for two possibilities
+    #                 - Grasp where the robot can not tilt
+    #                 - Grasp where the robot can tilt its hand
+    #             - Grasps from front plane
+    #             - Grasps from top down
+    #             - Provide center point for grasp
+    #             - Grasp the rim (inside of an object) i.e. bowl, cup, ...
+    #     """
+
+    #     # self.allGrasps = self.allGrasps
+    #     # self.superquadric = self.superquadric.getAlignedPCD()
+    #     # self.depth_map = self.superquadric.getPCD().getRawData()["raw_depth"]
+    #     # object_pcd = self.superquadric.getPCD()
+    #     #return self.allGrasps
+    #     for grasp in self.allGrasps:
+    #         if self.checkAntipodal(grasp) and self.checkDepth(grasp):
+    #             print('\n',grasp,'\n')
+    #             return [grasp]
     def selectGrasps(self):
         """
-            Selection priority list: 
-                - no other obsticles in the way
-                - points corss over the visible surface of the actual object
-                - possible force closure
-                - Aligned with estimated 6-DOF Pose Estimation
-                - Prepare for two possibilities
-                    - Grasp where the robot can not tilt
-                    - Grasp where the robot can tilt its hand
-                - Grasps from front plane
-                - Grasps from top down
-                - Provide center point for grasp
-                - Grasp the rim (inside of an object) i.e. bowl, cup, ...
+        Selects the best grasp and returns it as a geometry_msgs/Pose.
         """
-
-        # self.allGrasps = self.allGrasps
-        # self.superquadric = self.superquadric.getAlignedPCD()
-        # self.depth_map = self.superquadric.getPCD().getRawData()["raw_depth"]
-        # object_pcd = self.superquadric.getPCD()
-        #return self.allGrasps
         for grasp in self.allGrasps:
-            if self.checkAntipodal(grasp) and self.checkDepth(grasp):
-                print('\n',grasp,'\n')
-                return [grasp]
-        
+            if self.checkAntipodal(grasp) and self.checkDepth(grasp) and self.horizontalPlace(grasp):
+                # Get midpoint between grasp points
+                midpoint = (grasp["point_i"] + grasp["point_j"]) / 2.0
+
+                # Approach direction (z-axis of end-effector)
+                approach = grasp["point_j"] - grasp["point_i"]
+                approach /= np.linalg.norm(approach)
+
+                # Create a fake up vector (e.g. camera's Y axis), then compute orthogonal axes
+                fake_up = np.array([0, 1, 0])
+                if abs(np.dot(fake_up, approach)) > 0.95:
+                    fake_up = np.array([1, 0, 0])  # fallback if aligned
+
+                # Compute axes
+                y_axis = np.cross(approach, fake_up)
+                y_axis /= np.linalg.norm(y_axis)
+                x_axis = np.cross(y_axis, approach)
+                x_axis /= np.linalg.norm(x_axis)
+
+                # Construct rotation matrix
+                rot = np.eye(4)
+                rot[:3, 0] = x_axis
+                rot[:3, 1] = y_axis
+                rot[:3, 2] = approach
+
+                quat = quaternion_from_matrix(rot)
+
+                pose = Pose()
+                pose.position.x = midpoint[0]
+                pose.position.y = midpoint[1]
+                pose.position.z = midpoint[2]
+                pose.orientation.x = quat[0]
+                pose.orientation.y = quat[1]
+                pose.orientation.z = quat[2]
+                pose.orientation.w = quat[3]
+
+                return pose
+
+        return None
+
     def getAllGrasps(self):
         return self.allGrasps
     

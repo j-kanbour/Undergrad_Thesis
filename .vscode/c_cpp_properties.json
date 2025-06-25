@@ -1,0 +1,25 @@
+{
+  "configurations": [
+    {
+      "browse": {
+        "databaseFilename": "${default}",
+        "limitSymbolsToIncludedHeaders": false
+      },
+      "includePath": [
+        "/home/toyota/catkin_ws/devel/include/**",
+        "/opt/ros/noetic/include/**",
+        "/home/toyota/catkin_ws/src/freenect_stack/freenect_camera/include/**",
+        "/opt/ros/noetic/share/tmc_julius/include/**",
+        "/home/toyota/catkin_ws/src/utils/include/**",
+        "/home/toyota/catkin_ws/src/yolov8/include/**",
+        "/usr/include/**"
+      ],
+      "name": "ROS",
+      "intelliSenseMode": "gcc-x64",
+      "compilerPath": "/usr/bin/gcc",
+      "cStandard": "gnu11",
+      "cppStandard": "c++14"
+    }
+  ],
+  "version": 4
+}

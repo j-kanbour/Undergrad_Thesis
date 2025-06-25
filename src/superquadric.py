@@ -1,3 +1,4 @@
+#!/usr/bin/env python3.8
 from pointCloudData import PointCloudData
 import numpy as np
 import open3d as o3d
@@ -7,14 +8,14 @@ import math
 import re
 
 class Superquadric:
-    def __init__(self, object_ID, class_name, input_type, raw_data_1, raw_depth=None, raw_mask=None, camera_info=None):
+    def __init__(self, object_ID, class_name, input_type, raw_data_1,  bbox=None, raw_depth=None, raw_mask=None, camera_info=None):
         self.print = lambda *args, **kwargs: print("Superquadric:", *args, **kwargs)
 
         self.object_ID = object_ID
         self.class_name = class_name.lower()
 
         #built point cloud from raw data
-        self.pcd = PointCloudData(object_ID, input_type, raw_data_1, raw_depth, raw_mask, camera_info)
+        self.pcd = PointCloudData(object_ID, input_type, raw_data_1, bbox, raw_depth, raw_mask, camera_info)
 
         #estimate values of e
         self.e1, self.e2 = self.defineE()
@@ -70,10 +71,10 @@ class Superquadric:
         return self.estimateE()
         if re.search(r"can", self.class_name):
             return 0.1, 1
-
+        elif re.search(r"cup", self.class_name):
+            return 0.1, 1
         elif re.search(r"box", self.class_name):
             return 0.1, 2
-
         elif re.search(r"ball", self.class_name):
             return 1, 1
         elif re.search(r"bowl", self.class_name):
@@ -83,47 +84,38 @@ class Superquadric:
         else:
             return self.estimateE()
         
-
     def createSuperquadric(self):
 
         e1, e2 = self.e1, self.e2
+
         boundingBox = self.pcd.getBoundingBox()
         extent = boundingBox.extent
-
+ 
         alpha1 = extent[0] / 2
         alpha2 = extent[1] / 2
         alpha3 = extent[2] / 2
 
-        def fexp(x, p):
-            return np.sign(x) * (np.abs(x) ** p)
+        def fexp(x,p):
+            return (np.sign(x) * (np.abs(x)**p))
 
-        # Special handling for concave shapes
-        if self.class_name in ['bowl', 'plate']:
-            # For a bowl or plate, model only the top hemisphere
-            phi = np.linspace(0, np.pi / 2, 80)
-            theta = np.linspace(0, 2 * np.pi, 80)
-            phi, theta = np.meshgrid(phi, theta)
+        phi, theta = np.mgrid[0:np.pi:80j, 0:2*np.pi:80j]
 
-            # Inverted z for concavity, and reduced z-scale for plate
-            z_scale = 0.5 if self.class_name == 'plate' else 1.0
+        x = alpha1 * (fexp(np.sin(phi),e1)) * (fexp(np.cos(theta),e2))
+        y = alpha2 * (fexp(np.sin(phi),e1)) * (fexp(np.sin(theta),e2))
+        z = alpha3 * (fexp(np.cos(phi),e1))
+        
+        axis = self.pcd.getAxis()  # 3x3 rotation matrix
+        center = self.pcd.getCentroid() # 3D centre of the bounding box
 
-            x = alpha1 * fexp(np.sin(phi), e1) * fexp(np.cos(theta), e2)
-            y = alpha2 * fexp(np.sin(phi), e1) * fexp(np.sin(theta), e2)
-            z = -alpha3 * fexp(np.cos(phi), e1) * z_scale  # Inverted for concavity
-        else:
-            # Regular superquadric
-            phi, theta = np.mgrid[0:np.pi:80j, 0:2 * np.pi:80j]
+        # Stack your generated superquadric grid into points
+        points = np.vstack((x.flatten(), y.flatten(), z.flatten())).T  # (N, 3)
 
-            x = alpha1 * fexp(np.sin(phi), e1) * fexp(np.cos(theta), e2)
-            y = alpha2 * fexp(np.sin(phi), e1) * fexp(np.sin(theta), e2)
-            z = alpha3 * fexp(np.cos(phi), e1)
+        # Transform points:
+        #   - First rotate them using the OBB axes
+        #   - Then translate them to the OBB centre
+        points_transformed = points @ axis.T  # (N, 3)
 
-        axis = self.pcd.getAxis()
-        center = self.pcd.getCentroid()
-
-        points = np.vstack((x.flatten(), y.flatten(), z.flatten())).T
-        points_transformed = points @ axis.T
-
+        # Unpack back to x_final, y_final, z_final in original grid shape
         x_final = points_transformed[:, 0].reshape(x.shape) + center[0]
         y_final = points_transformed[:, 1].reshape(y.shape) + center[1]
         z_final = points_transformed[:, 2].reshape(z.shape) + center[2]
@@ -215,6 +207,7 @@ class Superquadric:
 
     def getPCD(self):
         return self.pcd
+    
     
     def getAlignedPCD(self):
         return self.aligned_PCD
