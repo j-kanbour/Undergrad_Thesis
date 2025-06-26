@@ -4,14 +4,13 @@ import os
 import sys
 import numpy as np
 import message_filters
+# ✅ Added import
 from sensor_msgs.msg import Image, CameraInfo, PointCloud2, PointField
 from unsw_vision_msgs.msg import DetectionList
 from superquadric import Superquadric
 from grasps import Grasps
 import sensor_msgs.point_cloud2 as pc2
 from cv_bridge import CvBridge
-
-# ✅ Added import
 from geometry_msgs.msg import PoseStamped
 
 # Extend path for util scripts
@@ -60,20 +59,18 @@ class GraspGenerator():
     def main_callback(self, rgb_msg, depth_msg):
         try:
             if self.detection_msg and self.detection_msg.objects:
-                rgb_image = self.bridge.imgmsg_to_cv2(rgb_msg, 'bgr8')
-                depth_image = self.bridge.imgmsg_to_cv2(depth_msg, desired_encoding="passthrough")
 
                 all_models = []
                 for obj in self.detection_msg.objects:
-                    if obj.object_class in ['cup']:  # Target objects
+                    if obj.object_class not in []:  # Target objects
 
                         superquadric = Superquadric(
                             object_ID=obj.tracking_id,
                             class_name=obj.object_class,
                             input_type="RGBD STREAM",
-                            raw_data_1=rgb_image,
+                            raw_data_1=rgb_msg,
                             bbox=obj.bbox,
-                            raw_depth=depth_image,
+                            raw_depth=depth_msg,
                             raw_mask=None,
                             camera_info=self.latest_camera_info
                         )

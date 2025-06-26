@@ -8,22 +8,16 @@ from tf.transformations import quaternion_from_matrix
 
 
 class Grasps:
-    def __init__(self, superquadric, flat_plane_only = True):
+    def __init__(self, superquadric, orientation=None):
 
         self.print = lambda *args, **kwargs: print("Grasps:", *args, **kwargs)
 
-        print(1)
         self.superquadric = superquadric.getAlignedPCD()
-        print(1.1)
         self.depth = superquadric.getPCD().getRawData()["raw_depth"]
-        print(1.2)
         self.depth_map = o3d.geometry.Image(self.depth.astype(np.uint16))
-        print(1.3)
         self.mask = cv2.imread(superquadric.getPCD().getRawData()["raw_mask"], cv2.IMREAD_GRAYSCALE)
-        print(1.4)
         self.camera_info = superquadric.getPCD().getRawData()["camera_info"]
         
-        print(2)
 
         self.K = np.array(self.camera_info.K).reshape(3, 3)
         self.fx = self.K[0, 0]
@@ -35,15 +29,10 @@ class Grasps:
         self.depth_scale = 0.001
 
 
-        print(3)
-
         self.object_pcd = superquadric.getPCD().getPCD()
 
-        print(4)
-        self.flat_plane_only = flat_plane_only
-        print(5)
+        self.orientation = orientation
         self.allGrasps = self.generateGrasps()
-        print(6)
         self.selectedGrasps = self.selectGrasps()
 
     def generateGrasps(self, num_grasps=10000, d_thresh=1.0):

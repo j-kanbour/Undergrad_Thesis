@@ -2,6 +2,7 @@
 import numpy as np
 import open3d as o3d
 import cv2
+from cv_bridge import CvBridge
 
 class PointCloudData:
 
@@ -11,8 +12,8 @@ class PointCloudData:
         self.object_ID = object_ID
         self.input_type = input_type
         self.bbox = bbox
-        self.raw_data_1 = raw_data_1
-        self.raw_depth = raw_depth
+        self.raw_data_1 = self.bridge.imgmsg_to_cv2(raw_data_1, 'bgr8')
+        self.raw_depth = self.bridge.imgmsg_to_cv2(raw_depth, desired_encoding="passthrough")
         self.raw_mask = raw_mask
         self.camera_info = camera_info
 

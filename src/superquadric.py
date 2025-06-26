@@ -208,7 +208,6 @@ class Superquadric:
     def getPCD(self):
         return self.pcd
     
-    
     def getAlignedPCD(self):
         return self.aligned_PCD
 
