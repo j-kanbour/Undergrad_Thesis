@@ -35,8 +35,8 @@ class GraspGenerator():
         self.point_cloud_pub = rospy.Publisher('/superquadric_pointcloud', PointCloud2, queue_size=10)
         self.grasp_pose_pub = rospy.Publisher('/grasp_pose', PoseStamped, queue_size=10)
 
-        self.marker_pub_i = rospy.Publisher('/grasp_point_i', Marker, queue_size=10)
-        self.marker_pub_j = rospy.Publisher('/grasp_point_j', Marker, queue_size=10)
+        self.marker_pub_1 = rospy.Publisher('/grasp_point_1', Marker, queue_size=10)
+        self.marker_pub_2 = rospy.Publisher('/grasp_point_2', Marker, queue_size=10)
 
         self.latest_camera_info = None
 
@@ -74,7 +74,7 @@ class GraspGenerator():
 
                         if superquadric:
                             all_models.append(superquadric.getAlignedPCD())
-                            grasp_obj = Grasps(superquadric)
+                            grasp_obj = Grasps(superquadric, 'front', True)
                             grasp_pose = grasp_obj.selectGrasps()
 
                             if grasp_pose:
@@ -83,14 +83,14 @@ class GraspGenerator():
                                 pose_stamped.pose = grasp_pose["pose"]
                                 self.grasp_pose_pub.publish(pose_stamped)
 
-                                point_i = grasp_pose["point_i"]
-                                point_j = grasp_pose["point_j"]
+                                point_1 = grasp_pose["point_1"]
+                                point_2 = grasp_pose["point_2"]
 
-                                marker_i = self.publish_grasp_point_marker(point_i, rgb_msg.header.frame_id, marker_id=0, color=(1.0, 0.0, 0.0))
-                                marker_j = self.publish_grasp_point_marker(point_j, rgb_msg.header.frame_id, marker_id=1, color=(0.0, 0.0, 1.0))
+                                marker_1 = self.publish_grasp_point_marker(point_1, rgb_msg.header.frame_id, marker_id=0, color=(1.0, 0.0, 0.0))
+                                marker_2 = self.publish_grasp_point_marker(point_2, rgb_msg.header.frame_id, marker_id=1, color=(0.0, 0.0, 1.0))
 
-                                self.marker_pub_i.publish(marker_i)
-                                self.marker_pub_j.publish(marker_j)
+                                self.marker_pub_1.publish(marker_1)
+                                self.marker_pub_2.publish(marker_2)
 
                                 rospy.loginfo("Published grasp pose and grasp points.")
                             else:

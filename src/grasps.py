@@ -20,20 +20,18 @@
 """
 
 import open3d as o3d
-from scipy.spatial import cKDTree
 import numpy as np
-import json
-import cv2
 from geometry_msgs.msg import Pose
 from tf.transformations import quaternion_from_matrix
 import grasp_checks
 
 
 class Grasps:
-    def __init__(self, superquadric, orientation=None):
+    def __init__(self, superquadric, orientation=None, _debug=True):
 
         self.print = lambda *args, **kwargs: print("Grasps:", *args, **kwargs)
         self.orientation = orientation
+        self._debug = _debug
 
         #extract necessary information from superquadric object
         self.superquadric = superquadric.getAlignedPCD()
@@ -84,11 +82,6 @@ class Grasps:
             point2 = points[second_index]
             normal2 = normals[second_index]
 
-            # Distance check
-            dist = np.linalg.norm(point1 - point2)
-            if dist > dist:
-                continue
-
             #angle between line through points and xz plane (floor)
             vec = point2 - point1
             vec_norm = vec / np.linalg.norm(vec)
@@ -111,7 +104,6 @@ class Grasps:
                 "point_i_normals": normal1.copy(),
                 "point_j": point2.copy(),
                 "point_j_normals": normal2.copy(),
-                "distance": dist,
                 "angle_to_xz": angle_deg  
             }
 
@@ -134,19 +126,21 @@ class Grasps:
             #grasp_checks.checkCollision(grasp_pose, self.depth_map,
             #                            self.object_pcd, self.mask,
             #                            self.camera_info, collision_threshold=0.05) and \
+            #grasp_checks.checkOrientation(grasp_pose, self.orientation, angle_threshold=1) and \
+            #grasp_checks.checkAcrossFace(grasp_pose, self.object_pcd, self.orientation, angle_threshold=1)
 
             if grasp_checks.checkGripper(grasp_pose, self.superquadric) and \
-            grasp_checks.checkAntipodal(grasp_pose, normal_threshold=10) and \
-            grasp_checks.checkOrientation(grasp_pose, self.orientation, angle_threshold=1) and \
-            grasp_checks.checkAcrossFace(grasp_pose, self.object_pcd, self.orientation, angle_threshold=1):
+            grasp_checks.checkAntipodal(grasp_pose, normal_threshold=10):
                 candidate_grasps.append(grasp_pose)
+                
             if len(candidate_grasps) >= num_grasps:
                 break
-            
-        for i in candidate_grasps:
-            for e in i: 
-                print(f'{e}:{i[e]}')
-            print('\n')
+        
+        if self._debug:
+            for i in candidate_grasps:
+                for e in i: 
+                    print(f'{e}:{i[e]}')
+                print('\n')
 
         return candidate_grasps
 
@@ -192,12 +186,11 @@ class Grasps:
 
             return {
                 "pose": pose,
-                "point_i": grasp["point_i"],
-                "point_j": grasp["point_j"]
+                "point_1": grasp["point_i"],
+                "point_2": grasp["point_j"]
             }
 
         return None
-
 
     def getAllGrasps(self):
         return self.allGrasps
