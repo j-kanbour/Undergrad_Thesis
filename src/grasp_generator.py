@@ -1,18 +1,17 @@
 #!/usr/bin/env python3.8
 
 import rospy
-import os
-import sys
 import numpy as np
 import message_filters
-from sensor_msgs.msg import Image, CameraInfo, PointCloud2, PointField
-from unsw_vision_msgs.msg import DetectionList
+
 from superquadric import Superquadric
 from grasps import Grasps
-import sensor_msgs.point_cloud2 as pc2
-from cv_bridge import CvBridge
+
 from geometry_msgs.msg import PoseStamped
 from visualization_msgs.msg import Marker
+from sensor_msgs.msg import Image, CameraInfo, PointCloud2, PointField
+from unsw_vision_msgs.msg import DetectionList
+import sensor_msgs.point_cloud2 as pc2
 
 class GraspGenerator():
     def __init__(self):
@@ -64,7 +63,6 @@ class GraspGenerator():
                         superquadric = Superquadric(
                             object_ID=obj.tracking_id,
                             class_name=obj.object_class,
-                            input_type="RGBD STREAM",
                             raw_data_1=rgb_msg,
                             bbox=obj.bbox,
                             raw_depth=depth_msg,
