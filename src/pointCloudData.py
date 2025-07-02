@@ -8,6 +8,7 @@ class PointCloudData:
 
     def __init__(self, object_ID, input_type, raw_data_1, bbox=None, raw_depth=None, raw_mask=None, camera_info=None):
         self.print = lambda *args, **kwargs: print("Point Cloud Data:", *args, **kwargs)
+        self.bridge = CvBridge()
 
         self.object_ID = object_ID
         self.input_type = input_type
@@ -103,15 +104,15 @@ class PointCloudData:
         """
         raw_data_1 = self.raw_data_1       # RGB image or RGBD image
         raw_depth = self.raw_depth         # Depth image or None
-        raw_mask = self.raw_mask           # Binary mask or None
+        # Binary mask or None
         bbox = self.bbox                   # Bounding box or None
         camera_info = self.camera_info     # sensor_msgs/CameraInfo
 
         if self.input_type == 'RGBD STREAM':
             # Step 1: Handle Mask
             mask = None
-            if raw_mask is not None:
-                mask = raw_mask.astype(bool)
+            if self.raw_mask is not None:
+                mask = self.raw_mask.astype(bool)
 
             elif bbox is not None:
 
@@ -141,6 +142,7 @@ class PointCloudData:
                         self.print("GrabCut mask too small. Falling back to rectangular mask.")
                         mask = np.zeros(raw_data_1.shape[:2], dtype=bool)
                         mask[y:y+h, x:x+w] = True
+
                     else:
                         self.print("Mask estimated using GrabCut from bounding box.")
 
@@ -148,12 +150,13 @@ class PointCloudData:
                     self.print(f"GrabCut failed: {e}. Falling back to rectangular mask.")
                     mask = np.zeros(raw_data_1.shape[:2], dtype=bool)
                     mask[y:y+h, x:x+w] = True
+                    
 
 
             else:
                 # Default: use full image
                 mask = np.ones(raw_data_1.shape[:2], dtype=bool)
-
+            self.raw_mask = mask
             # Step 2: RGB and Depth Handling
             if raw_depth is not None:
                 # Apply mask

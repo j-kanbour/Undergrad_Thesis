@@ -1,10 +1,10 @@
 #!/usr/bin/env python3.8
+
 import rospy
 import os
 import sys
 import numpy as np
 import message_filters
-# ✅ Added import
 from sensor_msgs.msg import Image, CameraInfo, PointCloud2, PointField
 from unsw_vision_msgs.msg import DetectionList
 from superquadric import Superquadric
@@ -12,15 +12,11 @@ from grasps import Grasps
 import sensor_msgs.point_cloud2 as pc2
 from cv_bridge import CvBridge
 from geometry_msgs.msg import PoseStamped
-
-# Extend path for util scripts
-module_path = os.environ.get("UNSW_WS")
-sys.path.append(module_path + "/src/utils/src")  # NOTE: Change to "/VISION/utils/src" on robot
+from visualization_msgs.msg import Marker
 
 class GraspGenerator():
     def __init__(self):
         rospy.init_node("grasp_generator_node")
-        self.bridge = CvBridge()
 
         self.rgb_sub = message_filters.Subscriber('/hsrb/head_rgbd_sensor/rgb/image_raw', Image)
         self.depth_sub = message_filters.Subscriber('/hsrb/head_rgbd_sensor/depth_registered/image_raw', Image)
@@ -37,9 +33,10 @@ class GraspGenerator():
         self.detection_timer = rospy.Timer(rospy.Duration(2.0), self.check_detection_timeout)
 
         self.point_cloud_pub = rospy.Publisher('/superquadric_pointcloud', PointCloud2, queue_size=10)
-
-        # ✅ Grasp pose publisher
         self.grasp_pose_pub = rospy.Publisher('/grasp_pose', PoseStamped, queue_size=10)
+
+        self.marker_pub_i = rospy.Publisher('/grasp_point_i', Marker, queue_size=10)
+        self.marker_pub_j = rospy.Publisher('/grasp_point_j', Marker, queue_size=10)
 
         self.latest_camera_info = None
 
@@ -62,7 +59,7 @@ class GraspGenerator():
 
                 all_models = []
                 for obj in self.detection_msg.objects:
-                    if obj.object_class not in []:  # Target objects
+                    if obj.object_class in ['cup']:
 
                         superquadric = Superquadric(
                             object_ID=obj.tracking_id,
@@ -77,16 +74,25 @@ class GraspGenerator():
 
                         if superquadric:
                             all_models.append(superquadric.getAlignedPCD())
-                            # ✅ Generate grasp pose
                             grasp_obj = Grasps(superquadric)
                             grasp_pose = grasp_obj.selectGrasps()
 
                             if grasp_pose:
                                 pose_stamped = PoseStamped()
-                                pose_stamped.header = rgb_msg.header  # Copy frame + timestamp
-                                pose_stamped.pose = grasp_pose
+                                pose_stamped.header = rgb_msg.header
+                                pose_stamped.pose = grasp_pose["pose"]
                                 self.grasp_pose_pub.publish(pose_stamped)
-                                rospy.loginfo("Published grasp pose.")
+
+                                point_i = grasp_pose["point_i"]
+                                point_j = grasp_pose["point_j"]
+
+                                marker_i = self.publish_grasp_point_marker(point_i, rgb_msg.header.frame_id, marker_id=0, color=(1.0, 0.0, 0.0))
+                                marker_j = self.publish_grasp_point_marker(point_j, rgb_msg.header.frame_id, marker_id=1, color=(0.0, 0.0, 1.0))
+
+                                self.marker_pub_i.publish(marker_i)
+                                self.marker_pub_j.publish(marker_j)
+
+                                rospy.loginfo("Published grasp pose and grasp points.")
                             else:
                                 rospy.logwarn("No valid grasp pose found.")
 
@@ -102,7 +108,6 @@ class GraspGenerator():
     def convert_o3d_to_ros_cloud(self, cloud_o3d, frame_id="head_rgbd_sensor_rgb_frame"):
         points = np.asarray(cloud_o3d.points)
         colors = np.asarray(cloud_o3d.colors)
-        print(colors)
 
         if points.shape[0] == 0:
             return None
@@ -110,10 +115,7 @@ class GraspGenerator():
         rgb_packed = (colors * 255).astype(np.uint8)
         rgb_packed = rgb_packed[:, 0] << 16 | rgb_packed[:, 1] << 8 | rgb_packed[:, 2]
 
-        cloud_data = []
-        for i in range(points.shape[0]):
-            x, y, z = points[i]
-            cloud_data.append([x, y, z])
+        cloud_data = [[x, y, z] for (x, y, z) in points]
 
         fields = [
             PointField('x', 0, PointField.FLOAT32, 1),
@@ -129,7 +131,32 @@ class GraspGenerator():
             cloud_msg = self.convert_o3d_to_ros_cloud(model, frame_id=header.frame_id)
             if cloud_msg:
                 self.point_cloud_pub.publish(cloud_msg)
-                rospy.loginfo(f"Published point cloud for object")
+                rospy.loginfo("Published point cloud for object")
+
+    def publish_grasp_point_marker(self, point, frame_id, marker_id, color):
+        marker = Marker()
+        marker.header.frame_id = frame_id
+        marker.header.stamp = rospy.Time.now()
+        marker.ns = "grasp_points"
+        marker.id = marker_id
+        marker.type = Marker.SPHERE
+        marker.action = Marker.ADD
+        marker.pose.position.x = point[0]
+        marker.pose.position.y = point[1]
+        marker.pose.position.z = point[2]
+        marker.pose.orientation.w = 1.0
+
+        marker.scale.x = 0.02
+        marker.scale.y = 0.02
+        marker.scale.z = 0.02
+
+        marker.color.r = color[0]
+        marker.color.g = color[1]
+        marker.color.b = color[2]
+        marker.color.a = 1.0
+
+        marker.lifetime = rospy.Duration(5.0)
+        return marker
 
 if __name__ == "__main__":
     node = GraspGenerator()

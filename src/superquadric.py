@@ -4,8 +4,8 @@ import numpy as np
 import open3d as o3d
 from scipy.stats import kurtosis
 import copy
-import math
 import re
+from cv_bridge import CvBridge
 
 class Superquadric:
     def __init__(self, object_ID, class_name, input_type, raw_data_1,  bbox=None, raw_depth=None, raw_mask=None, camera_info=None):
