@@ -25,7 +25,7 @@ class Superquadric:
         self.rawSuperquadric = self.createSuperquadricAsPCD()
 
         #using ICP aligned the superquadric estimate to the target object
-        self.aligned_PCD = self.alignWithICP()
+        self.aligned_PCD = None #self.alignWithICP()
             
     def estimateE(self):
 
@@ -76,7 +76,6 @@ class Superquadric:
             TODO: use these then fill in shapes or find better values
         """
         try:
-            return self.estimateE()
             if re.search(r"can", self.class_name):
                 return 0.1, 1
             elif re.search(r"cup", self.class_name):
@@ -138,78 +137,78 @@ class Superquadric:
             print(f"[createSuperquadric] Error: {e}")
             return [None] * 3
 
-    def alignWithICP(self):
-        """
-        try to make this redundant by improving the above, cause this fuckign kills speed
-        """
-        try:
-            s = self.rawSuperquadric
-            t = self.pcd.getPCD()
+    # def alignWithICP(self):
+    #     """
+    #     try to make this redundant by improving the above, cause this fuckign kills speed
+    #     """
+    #     try:
+    #         s = self.rawSuperquadric
+    #         t = self.pcd.getPCD()
 
-            source = copy.deepcopy(s)
-            target = copy.deepcopy(t)
+    #         source = copy.deepcopy(s)
+    #         target = copy.deepcopy(t)
 
-            threshold = 0.02
-            voxel_size = threshold / 2
+    #         threshold = 0.02
+    #         voxel_size = threshold / 2
 
-            # Optional downsampling (improves ICP stability)
-            source_down = source.voxel_down_sample(voxel_size)
-            target_down = target.voxel_down_sample(voxel_size)
+    #         # Optional downsampling (improves ICP stability)
+    #         source_down = source.voxel_down_sample(voxel_size)
+    #         target_down = target.voxel_down_sample(voxel_size)
 
-            trans_init = np.eye(4)
+    #         trans_init = np.eye(4)
 
-            reg_p2p = o3d.pipelines.registration.registration_icp(
-                source_down, target_down, threshold, trans_init,
-                o3d.pipelines.registration.TransformationEstimationPointToPoint()
-            )
-            self.print("ICP Fitness:", reg_p2p.fitness)
-            self.print("ICP Inlier RMSE:", reg_p2p.inlier_rmse)
+    #         reg_p2p = o3d.pipelines.registration.registration_icp(
+    #             source_down, target_down, threshold, trans_init,
+    #             o3d.pipelines.registration.TransformationEstimationPointToPoint()
+    #         )
+    #         self.print("ICP Fitness:", reg_p2p.fitness)
+    #         self.print("ICP Inlier RMSE:", reg_p2p.inlier_rmse)
 
-            # Transform model values
-            x, y, z = self.modelValues
-            points = np.vstack((x.flatten(), y.flatten(), z.flatten())).T
-            points_hom = np.hstack((points, np.ones((points.shape[0], 1))))
-            transformed_points = (reg_p2p.transformation @ points_hom.T).T[:, :3]
+    #         # Transform model values
+    #         x, y, z = self.modelValues
+    #         points = np.vstack((x.flatten(), y.flatten(), z.flatten())).T
+    #         points_hom = np.hstack((points, np.ones((points.shape[0], 1))))
+    #         transformed_points = (reg_p2p.transformation @ points_hom.T).T[:, :3]
 
-            x_final = transformed_points[:, 0].reshape(x.shape)
-            y_final = transformed_points[:, 1].reshape(y.shape)
-            z_final = transformed_points[:, 2].reshape(z.shape)
-            self.modelValues = (x_final, y_final, z_final)
+    #         x_final = transformed_points[:, 0].reshape(x.shape)
+    #         y_final = transformed_points[:, 1].reshape(y.shape)
+    #         z_final = transformed_points[:, 2].reshape(z.shape)
+    #         self.modelValues = (x_final, y_final, z_final)
 
-            # Create final aligned point cloud
-            aligned_pcd = o3d.geometry.PointCloud()
-            aligned_pcd.points = o3d.utility.Vector3dVector(transformed_points)
+    #         # Create final aligned point cloud
+    #         aligned_pcd = o3d.geometry.PointCloud()
+    #         aligned_pcd.points = o3d.utility.Vector3dVector(transformed_points)
 
-            # Step 1: estimate normals (safe)
-            aligned_pcd.estimate_normals(
-                search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.01, max_nn=100)
-            )
+    #         # Step 1: estimate normals (safe)
+    #         aligned_pcd.estimate_normals(
+    #             search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.01, max_nn=100)
+    #         )
 
-            # Step 2: optionally orient normals (on downsampled points to avoid Qhull crash)
-            try:
-                aligned_down = aligned_pcd.voxel_down_sample(voxel_size=0.005)
-                aligned_down.estimate_normals(
-                    search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.01, max_nn=30)
-                )
-                aligned_down.orient_normals_consistent_tangent_plane(k=10)
+    #         # Step 2: optionally orient normals (on downsampled points to avoid Qhull crash)
+    #         try:
+    #             aligned_down = aligned_pcd.voxel_down_sample(voxel_size=0.005)
+    #             aligned_down.estimate_normals(
+    #                 search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.01, max_nn=30)
+    #             )
+    #             aligned_down.orient_normals_consistent_tangent_plane(k=10)
 
-                # Transfer normals back (approximate)
-                from scipy.spatial import cKDTree
-                source_points = np.asarray(aligned_down.points)
-                source_normals = np.asarray(aligned_down.normals)
-                full_points = np.asarray(aligned_pcd.points)
+    #             # Transfer normals back (approximate)
+    #             from scipy.spatial import cKDTree
+    #             source_points = np.asarray(aligned_down.points)
+    #             source_normals = np.asarray(aligned_down.normals)
+    #             full_points = np.asarray(aligned_pcd.points)
 
-                tree = cKDTree(source_points)
-                _, indices = tree.query(full_points)
-                aligned_pcd.normals = o3d.utility.Vector3dVector(source_normals[indices])
-            except Exception as e:
-                self.print("Normal orientation skipped (safe fallback):", e)
+    #             tree = cKDTree(source_points)
+    #             _, indices = tree.query(full_points)
+    #             aligned_pcd.normals = o3d.utility.Vector3dVector(source_normals[indices])
+    #         except Exception as e:
+    #             self.print("Normal orientation skipped (safe fallback):", e)
 
-            return aligned_pcd
+    #         return aligned_pcd
         
-        except Exception as e:
-            print(f"[alignWithICP] Error: {e}")
-            return None
+    #     except Exception as e:
+    #         print(f"[alignWithICP] Error: {e}")
+    #         return None
 
     def createSuperquadricAsPCD(self):
         """Builds PCD based on superquadric values"""
@@ -219,6 +218,10 @@ class Superquadric:
                                 self.modelValues[2].flatten())).T
             pcd = o3d.geometry.PointCloud()
             pcd.points = o3d.utility.Vector3dVector(points)
+            
+            #need to estimate point normals
+
+            
             return pcd
 
         except Exception as e:
@@ -231,8 +234,8 @@ class Superquadric:
     def getPCD(self):
         return self.pcd
     
-    def getAlignedPCD(self):
-        return self.aligned_PCD
+    # def getAlignedPCD(self):
+    #     return self.aligned_PCD
 
 """
 

@@ -28,6 +28,46 @@ class PointCloudData:
             self.boundingBox = None
             self.print("Warning: Empty point cloud. Centroid and bounding box not computed.")
 
+    def mirror_cloud(self, pcd, keep_original=False):
+        if pcd.is_empty():
+            raise ValueError("Input point cloud is empty")
+
+        # ── 1. Compute centroid and translate to local frame ───────────────
+        pts = np.asarray(pcd.points)
+        centre = pts.mean(axis=0)
+
+        pts_local = pts - centre  # move centroid to origin
+
+        # ── 2. Reflect across the origin (x,y,z → -x,-y,-z) ────────────────
+        pts_mirror = -pts_local
+
+        # ── 3. Bring mirrored points back to sensor/world frame ────────────
+        pts_mirror_world = pts_mirror + centre
+
+        # ── 4. Build mirrored cloud, copying colours + normals if present ──
+        mirrored = o3d.geometry.PointCloud()
+        mirrored.points = o3d.utility.Vector3dVector(pts_mirror_world)
+
+        # copy RGB colours if they exist
+        if pcd.has_colors():
+            colours = np.asarray(pcd.colors)
+            mirrored.colors = o3d.utility.Vector3dVector(colours)
+
+        # copy (and flip) normals if they exist
+        if pcd.has_normals():
+            normals = np.asarray(pcd.normals)
+            mirrored.normals = o3d.utility.Vector3dVector(-normals)
+
+        # ── 5. Combine or return only mirrored part ────────────────────────
+        if keep_original:
+            combined = o3d.geometry.PointCloud()
+            combined += pcd
+            combined += mirrored
+            return combined
+        else:
+            return mirrored
+
+
     def removeOutliers(self, pcd):
         """
             Remotes outliers based on nerious neighbour algorithm
@@ -56,6 +96,9 @@ class PointCloudData:
             camera_info = self.camera_info     # sensor_msgs/CameraInfo
 
             # Step 1: Handle Mask
+            """
+            NOTE: Temporary until i get mask
+            """
             mask = None
             if self.raw_mask is not None:
                 mask = self.raw_mask.astype(bool)
@@ -162,51 +205,18 @@ class PointCloudData:
             # Step 5: Optional cleanup
             pcd = self.removeOutliers(pcd)
 
+            
+            """
+            mirror partial point cloud 
+            NOTE: Mirror is off centered as center is calculated as mean of partial pcd
+            """
+            #pcd = self.mirror_cloud(pcd)
+
             return pcd
     
         except Exception as e:
             print(f"[covertToPCD] Error: {e}")
             return None
-    
-        """
-        
-        NOTE: Below implementations mainly for testing
-        
-        elif self.input_type == 'RGB and DEPTH':
-            assert os.path.exists(raw_data_1), f"RGB image not found: {raw_data_1}"
-            assert os.path.exists(raw_depth), f"Depth image not found: {raw_depth}"
-            assert os.path.exists(raw_mask), f"Mask image not found: {raw_mask}"
-            assert os.path.exists(camera_info), f"Camera info not found: {camera_info}"
-
-            rgb = cv2.cvtColor(cv2.imread(raw_data_1), cv2.COLOR_BGR2RGB)
-            depth = cv2.imread(raw_depth, cv2.IMREAD_UNCHANGED)
-            mask = cv2.imread(raw_mask, cv2.IMREAD_GRAYSCALE)
-
-            with open(camera_info, 'r') as f:
-                scene_info = json.load(f)["0"]
-                K = np.array(scene_info["cam_K"]).reshape(3, 3)
-                depth_scale = float(scene_info.get("depth_scale", 1.0))
-
-            return self._covertToPCD_helper_(rgb, depth, mask, K, depth_scale)
-
-        elif self.input_type == 'RGBD':
-            rgbd = np.load(raw_data_1) if raw_data_1.endswith(".npy") else cv2.imread(raw_data_1, cv2.IMREAD_UNCHANGED)
-            if rgbd.ndim != 3 or rgbd.shape[2] < 4:
-                self.print("Error: Expected RGBD image with 4 channels (RGB + Depth)")
-                return None
-
-            rgb = rgbd[:, :, :3]
-            depth = rgbd[:, :, 3]
-            mask = cv2.imread(raw_mask, cv2.IMREAD_GRAYSCALE)
-
-            with open(camera_info, 'r') as f:
-                scene_info = json.load(f)["0"]
-                K = np.array(scene_info["cam_K"]).reshape(3, 3)
-                depth_scale = float(scene_info.get("depth_scale", 1.0))
-
-            return self._covertToPCD_helper_(rgb, depth, mask, K, depth_scale)
-        """
-        
 
     def findBoundingBox(self):
         return self.pcd.get_oriented_bounding_box(True)
@@ -232,7 +242,6 @@ class PointCloudData:
     def getRawData(self):
         return {
             "object_ID" : self.object_ID,
-            "input_type" : self.input_type,
             "raw_data_1" : self.raw_data_1,
             "raw_depth" : self.raw_depth,
             "raw_mask" : self.raw_mask,
