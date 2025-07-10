@@ -27,22 +27,22 @@ import grasp_checks
 
 
 class Grasps:
-    def __init__(self, superquadric, orientation=None, _debug=True):
+    def __init__(self, sq, orientation=None, _debug=True):
 
         self.print = lambda *args, **kwargs: print("Grasps:", *args, **kwargs)
         self.orientation = orientation
         self._debug = _debug
 
         #extract necessary information from superquadric object
-        self.superquadric = superquadric.getSuperquadricAsPCD()
+        self.superquadric = sq.getSuperquadricAsPCD()
 
-        self.depth = superquadric.getPCD().getRawData()["raw_depth"]
+        self.depth = sq.getRawData()["raw_depth"]
         self.depth_map = o3d.geometry.Image(self.depth.astype(np.uint16))
         
-        self.mask = superquadric.getPCD().getRawData()["raw_mask"]
+        self.mask = sq.getRawData()["raw_mask"]
         
         #extracts camera info
-        self.camera_info = superquadric.getPCD().getRawData()["camera_info"]
+        self.camera_info = sq.getRawData()["camera_info"]
         self.K = np.array(self.camera_info.K).reshape(3, 3)
         self.fx = self.K[0, 0]
         self.fy = self.K[1, 1]
@@ -53,7 +53,7 @@ class Grasps:
         
         self.depth_scale = 0.001
 
-        self.object_pcd = superquadric.getPCD().getPCD()
+        self.object_pcd = sq.getPCD().getPCD()
 
         #generate and select best grasp
         self.allGrasps = self.generateGrasps()
@@ -129,9 +129,10 @@ class Grasps:
                 #                            self.camera_info, collision_threshold=0.05) and \
                 #grasp_checks.checkOrientation(grasp_pose, self.orientation, angle_threshold=1) and \
                 #grasp_checks.checkAcrossFace(grasp_pose, self.object_pcd, self.orientation, angle_threshold=1)
-
                 if grasp_checks.checkGripper(grasp_pose, self.superquadric) and \
-                grasp_checks.checkAntipodal(grasp_pose, normal_threshold=10):
+                grasp_checks.checkAntipodal(grasp_pose, normal_threshold=10) and \
+                grasp_checks.checkCollision(grasp_pose, self.depth_map, self.mask,
+                                            self.camera_info, collision_threshold=0.05):
                     candidate_grasps.append(grasp_pose)
                     
                 if len(candidate_grasps) >= num_grasps:
@@ -148,55 +149,110 @@ class Grasps:
         except Exception as e:
             print(f"[generateGrasps] Error: {e}")
             return None
-
+        
     def selectGrasps(self):
         """
         Selects a potential grasp and returns grasp pose + surface points.
+        
+        Creates a pose vector that:
+        - Originates from the midpoint between grasp points
+        - Is perpendicular to the line between the two grasp points
+        - For 'top' orientation: perpendicular to floor (pointing up/down)
+        - For 'front' orientation: parallel to floor (horizontal)
         """
         try:
             for grasp in self.allGrasps:
                 # Get midpoint between grasp points
-                midpoint = (grasp["point_i"] + grasp["point_j"]) / 2.0
-
-                # Approach direction (z-axis of end-effector)
-                approach = grasp["point_j"] - grasp["point_i"]
-                approach /= np.linalg.norm(approach)
-
-                # Create a fake up vector (e.g. camera's Y axis), then compute orthogonal axes
-                fake_up = np.array([0, 1, 0])
-                if abs(np.dot(fake_up, approach)) > 0.95:
-                    fake_up = np.array([1, 0, 0])  # fallback if aligned
-
-                # Compute axes
-                y_axis = np.cross(approach, fake_up)
-                y_axis /= np.linalg.norm(y_axis)
-                x_axis = np.cross(y_axis, approach)
-                x_axis /= np.linalg.norm(x_axis)
-
-                # Construct rotation matrix
-                rot = np.eye(4)
-                rot[:3, 0] = x_axis
-                rot[:3, 1] = y_axis
-                rot[:3, 2] = approach
-
-                quat = quaternion_from_matrix(rot)
-
-                pose = Pose()
-                pose.position.x = midpoint[0]
-                pose.position.y = midpoint[1]
-                pose.position.z = midpoint[2]
-                pose.orientation.x = quat[0]
-                pose.orientation.y = quat[1]
-                pose.orientation.z = quat[2]
-                pose.orientation.w = quat[3]
-
+                point_i = np.array(grasp["point_i"])
+                point_j = np.array(grasp["point_j"])
+                midpoint = (point_i + point_j) / 2.0
+                
+                # Grasp line direction (between the two grasp points)
+                grasp_line = point_j - point_i
+                grasp_line_normalized = grasp_line / np.linalg.norm(grasp_line)
+                
+                # Ground normal (assuming Z-axis is up)
+                ground_normal = np.array([0, 0, 1])
+                
+                # Determine pose vector based on orientation
+                if self.orientation in ['front', 'front-vertical']:
+                    # FRONT: Horizontal approach (parallel to ground, perpendicular to grasp line)
+                    
+                    # Method 1: Try cross product with ground normal
+                    pose_vector = np.cross(grasp_line_normalized, ground_normal)
+                    
+                    # Check if cross product is valid (grasp line not parallel to ground normal)
+                    if np.linalg.norm(pose_vector) < 0.1:
+                        # Grasp line is nearly vertical, use alternative horizontal direction
+                        # Create horizontal vector perpendicular to grasp line
+                        if abs(grasp_line_normalized[0]) < 0.9:  # Not parallel to X-axis
+                            pose_vector = np.cross(grasp_line_normalized, np.array([1, 0, 0]))
+                        else:  # Parallel to X-axis, use Y-axis
+                            pose_vector = np.cross(grasp_line_normalized, np.array([0, 1, 0]))
+                    
+                    # Normalize the pose vector
+                    pose_vector = pose_vector / np.linalg.norm(pose_vector)
+                    
+                    # Ensure it's horizontal (zero Z component)
+                    pose_vector[2] = 0
+                    pose_vector = pose_vector / np.linalg.norm(pose_vector)
+                    
+                elif self.orientation in ['top', 'top2']:
+                    # TOP: Vertical approach (perpendicular to ground, perpendicular to grasp line)
+                    
+                    # Project grasp line onto horizontal plane (XY plane)
+                    grasp_line_horizontal = np.array([grasp_line_normalized[0], grasp_line_normalized[1], 0])
+                    
+                    if np.linalg.norm(grasp_line_horizontal) > 0.1:
+                        # Grasp line has horizontal component
+                        # Create vertical vector perpendicular to horizontal projection
+                        horizontal_perp = np.cross(grasp_line_horizontal, ground_normal)
+                        horizontal_perp = horizontal_perp / np.linalg.norm(horizontal_perp)
+                        
+                        # The pose vector should be perpendicular to both grasp line and this horizontal perpendicular
+                        pose_vector = np.cross(grasp_line_normalized, horizontal_perp)
+                    else:
+                        # Grasp line is purely vertical, approach can be any horizontal direction
+                        pose_vector = np.array([1, 0, 0])  # Default to X-axis
+                    
+                    # Normalize the pose vector
+                    pose_vector = pose_vector / np.linalg.norm(pose_vector)
+                    
+                    # For top grasps, ensure the pose vector has a significant vertical component
+                    if abs(pose_vector[2]) < 0.5:
+                        # If not sufficiently vertical, make it point upward
+                        pose_vector = np.array([0, 0, 1])
+                    
+                else:
+                    # Default case - use surface normal approach
+                    # Average the normals at both grasp points
+                    normal_i = np.array(grasp["point_i_normals"])
+                    normal_j = np.array(grasp["point_j_normals"])
+                    avg_normal = (normal_i + normal_j) / 2.0
+                    pose_vector = avg_normal / np.linalg.norm(avg_normal)
+                
+                # Verify that pose vector is perpendicular to grasp line
+                dot_product = np.dot(pose_vector, grasp_line_normalized)
+                if abs(dot_product) > 0.1:  # Not sufficiently perpendicular
+                    print(f"Warning: Pose vector not perpendicular to grasp line. Dot product: {dot_product}")
+                    # Force perpendicularity by using Gram-Schmidt process
+                    pose_vector = pose_vector - dot_product * grasp_line_normalized
+                    pose_vector = pose_vector / np.linalg.norm(pose_vector)
+                
+                # Create pose as a vector (not a Pose message)
+                pose = {
+                    "origin": midpoint,
+                    "vector": pose_vector,
+                    "grasp_line_direction": grasp_line_normalized,  # Added for reference
+                    "orientation_type": self.orientation
+                }
+                
                 return {
                     "pose": pose,
                     "point_1": grasp["point_i"],
                     "point_2": grasp["point_j"]
                 }
-
-            return None
+                
 
         except Exception as e:
             print(f"[selectGrasps] Error: {e}")
