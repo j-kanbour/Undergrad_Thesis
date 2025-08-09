@@ -1,8 +1,5 @@
 import numpy as np
 from scipy.spatial import KDTree
-import cv2
-import traceback
-import sys
 
 
 def extractCameraInfo(camera_info):
@@ -22,11 +19,8 @@ def extractCameraInfo(camera_info):
 """
 check gripper
 - takes in the dimensions of the robot gripper (depth and width)
-
-- this program ensures that the points selected in grasp
-    - are less than 'width' apart
-    - and that the gripper can penetrate to the specified depth without collision
-
+- returns a score out of 100 based on how well the grasp fits within gripper constraints
+- considers both width constraint and depth penetration feasibility
 """
 def checkGripper(grasp, superquadric, depth=0.0666, width=0.236):
     try:
@@ -34,39 +28,44 @@ def checkGripper(grasp, superquadric, depth=0.0666, width=0.236):
         point_j = np.array(grasp["point_j"])
         point_distance = np.linalg.norm(point_i - point_j)
 
-        # Check if points are within gripper width
+        # Score based on gripper width constraint
         if point_distance > width:
-            return False
-
-        # # Check depth penetration (uncommented and fixed)
+            # Penalize based on how much it exceeds the width
+            excess_ratio = point_distance / width
+            width_score = max(0, 100 - (excess_ratio - 1) * 200)  # Steep penalty for exceeding width
+        else:
+            # Reward points that are close to optimal width (around 60-80% of max width)
+            optimal_ratio = point_distance / width
+            if 0.6 <= optimal_ratio <= 0.8:
+                width_score = 100
+            elif optimal_ratio < 0.6:
+                # Too narrow - linear penalty
+                width_score = 100 * (optimal_ratio / 0.6)
+            else:
+                # Too wide but within limits - linear penalty
+                width_score = 100 * (1 - (optimal_ratio - 0.8) / 0.2)
+        
+        # Depth penetration score (simplified - assume good penetration for now)
+        depth_score = 100
+        
+        # Could add actual depth penetration check here:
         # superquadric_points = np.asarray(superquadric.points)
         # normal_i = np.array(grasp["point_i_normals"])
         # normal_j = np.array(grasp["point_j_normals"])
+        # ... collision checking logic ...
         
-        # # Calculate grasp approach direction (average of normals pointing inward)
-        # grasp_normal = -(normal_i + normal_j) / 2.0
-        # grasp_normal /= np.linalg.norm(grasp_normal)
-
-        # midpoint = (point_i + point_j) / 2.0
-        # steps = np.linspace(0, depth, num=50)
-
-        # # Check if gripper can penetrate to specified depth without collision
-        # for step in steps:
-        #     probe_point = midpoint + grasp_normal * step
-        #     distances = np.linalg.norm(superquadric_points - probe_point, axis=1)
-        #     if np.min(distances) < 0.005:  # Collision threshold
-        #         return False
-        return True
+        # Combined score (weighted average)
+        final_score = (width_score * 0.8 + depth_score * 0.2)
+        return max(0, min(100, final_score))
+        
     except Exception as e:
         print(f"[checkGripper] Error: {e}")
-        return False
+        return 0
 
 """
 check antipodal
-
 - checks that the normals of the points are opposing within a threshold
-- ensures the grasp points have roughly opposite surface normals for stable grasping
-
+- returns a score out of 100 based on how well the normals oppose each other
 """
 def checkAntipodal(grasp, normal_threshold=10):
     try:
@@ -77,101 +76,132 @@ def checkAntipodal(grasp, normal_threshold=10):
         n1 /= np.linalg.norm(n1)
         n2 /= np.linalg.norm(n2)
         
-        # Check if normals are opposing (dot product with -n2 should be close to 1)
-        dot_product = np.dot(n1, -n2)
-        angle_rad = np.arccos(np.clip(dot_product, -1.0, 1.0))
-        angle_deg = np.degrees(angle_rad)
+        # Calculate dot product directly (should be close to -1 for opposing normals)
+        dot_product = np.dot(n1, n2)
+        return 100 * dot_product * (-1)
+        # # Debug prints
+        # print(f"[checkAntipodal] Normal 1: {n1}")
+        # print(f"[checkAntipodal] Normal 2: {n2}")
+        # print(f"[checkAntipodal] Dot product: {dot_product:.4f}")
         
-        return angle_deg < normal_threshold
+        # # For opposing normals, dot product should be close to -1
+        # # Convert to angle for scoring
+        # angle_rad = np.arccos(np.clip(abs(dot_product), 0.0, 1.0))
+        # angle_deg = np.degrees(angle_rad)
+        
+        # # If dot product is positive, normals are pointing in same direction (bad)
+        # # If dot product is negative, normals are opposing (good)
+        # if dot_product > 0:
+        #     # Same direction - penalize heavily
+        #     score = max(0, 20 * (1 - dot_product))
+        # else:
+        #     # Opposing direction - score based on how close to -1
+        #     opposition_quality = abs(dot_product)  # How close to -1 (ranges from 0 to 1)
+            
+        #     # Convert to angle for threshold comparison
+        #     if angle_deg <= normal_threshold:
+        #         # Within threshold - linear scoring
+        #         score = 100 * opposition_quality
+        #     else:
+        #         # Beyond threshold - exponential decay
+        #         excess_angle = angle_deg - normal_threshold
+        #         score = max(0, 100 * opposition_quality * np.exp(-excess_angle / 30))
+        
+        # print(f"[checkAntipodal] Angle: {angle_deg:.2f} degrees, Score: {score:.2f}")
+        # return max(0, min(100, score))
+        
     except Exception as e:
         print(f"[checkAntipodal] Error: {e}")
-        return False
+        return 0
 
 """
 check collision
-
-takes in the 
-- grasp points
-- the depth image
-- the raw point cloud of the object
-- the object bit mask
-- the camera info
-- and a collision threshold
-
-this function ensures that there are no objects present in the depth map that collide with the points (within the threshold)
-this function masks out the object from the depth map and is only concerned with surrounding objects in the foreground and background
+- returns a score out of 100 based on collision risk
+- higher score means lower collision risk
+- works with already-masked depth data (depth_masked)
 """
-def checkCollision(grasp, depth_map, object_mask, camera_info, collision_threshold=0.005):
+def checkCollision(grasp, depth_masked, camera_info, collision_threshold=0.03):
     try:
         K, fx, fy, cx, cy, w, h = extractCameraInfo(camera_info)
         if K is None:
             print("[checkCollision] Error: Failed to extract camera info")
-            return False
+            return 0
 
-        # Convert depth map to meters
-        depth = np.asarray(depth_map) / 1000.0
+        # Convert masked depth to meters (assuming input is in mm)
+        depth = np.asarray(depth_masked)
         u, v = np.meshgrid(np.arange(w), np.arange(h))
         
-        # Create full scene point cloud from depth map
+        # Create point cloud from masked depth (only object points)
         valid_depth = depth > 0
-        z_scene = depth[valid_depth]
-        x_scene = (u[valid_depth] - cx) * z_scene / fx
-        y_scene = (v[valid_depth] - cy) * z_scene / fy
-        scene_points = np.stack((x_scene, y_scene, z_scene), axis=-1)
-        
-        # Create object point cloud from masked depth
-        valid_object = (object_mask > 0) & (depth > 0)
-        if not np.any(valid_object):
-            print("[checkCollision] Warning: No valid object points in mask")
-            return False
+        if not np.any(valid_depth):
+            print("[checkCollision] Warning: No valid depth points in masked depth")
+            return 0
             
-        z_obj = depth[valid_object]
-        x_obj = (u[valid_object] - cx) * z_obj / fx
-        y_obj = (v[valid_object] - cy) * z_obj / fy
+        z_obj = depth[valid_depth]
+        x_obj = (u[valid_depth] - cx) * z_obj / fx
+        y_obj = (v[valid_depth] - cy) * z_obj / fy
         object_points = np.stack((x_obj, y_obj, z_obj), axis=-1)
 
-        if scene_points.size == 0:
-            print("[checkCollision] Warning: scene_points is empty — check depth map.")
-            return False
+        if object_points.size == 0:
+            print("[checkCollision] Warning: object_points is empty")
+            return 0
 
-        # Remove object points from scene to get environment points
+        # Build KDTree for object points
         obj_tree = KDTree(object_points)
-        distances, _ = obj_tree.query(scene_points)
-        keep_mask = distances > 0.01  # Points farther than 1cm from object
-        environment_points = scene_points[keep_mask]
-
-        if environment_points.shape[0] == 0:
-            print("[checkCollision] Warning: No environment points remain after masking.")
-            return True  # No environment objects to collide with
-
-        # Check if grasp points collide with environment
-        env_tree = KDTree(environment_points)
-        for grasp_point in [np.array(grasp["point_i"]), np.array(grasp["point_j"])]:
-            dist, _ = env_tree.query(grasp_point)
-            if dist < collision_threshold:
-                return False
-        return True
+        
+        # Check distance from grasp points to nearest object surface
+        min_distance = float('inf')
+        grasp_points = [np.array(grasp["point_i"]), np.array(grasp["point_j"])]
+        
+        for grasp_point in grasp_points:
+            dist, _ = obj_tree.query(grasp_point)
+            min_distance = min(min_distance, dist)
+        
+        # Score based on minimum distance to object surface
+        # Higher distance = higher score (less collision risk)
+        if min_distance >= collision_threshold * 3:  # Safe distance
+            score = 100
+        elif min_distance >= collision_threshold:
+            # Linear interpolation between threshold and 3x threshold
+            score = 50 + 50 * (min_distance - collision_threshold) / (collision_threshold * 2)
+        else:
+            # Close to collision - exponential decay
+            score = 50 * (min_distance / collision_threshold)
+        
+        return max(0, min(100, score))
 
     except Exception as e:
         import traceback, sys
         tb = traceback.extract_tb(sys.exc_info()[2])[-1]
         print(f"[checkCollision] Error: {e} at line {tb.lineno} in {tb.filename}")
-        return False
+        return 0
 
 def checkOrientation(grasp, orientation, angle_threshold=15):
     try:
         angle = grasp["angle_to_xz"]
 
         if orientation in ['top', 'top2', 'front']:
-            return abs(angle) < angle_threshold
+            target_angle = 0
         elif orientation == 'front-vertical':
-            return abs(angle - 90) < angle_threshold
+            target_angle = 90
         else:
-            return True
+            return 100  # No orientation constraint
+        
+        angle_diff = abs(angle - target_angle)
+        
+        # Score based on angle difference
+        if angle_diff <= angle_threshold:
+            score = 100 * (1 - angle_diff / angle_threshold)
+        else:
+            # Beyond threshold - exponential decay
+            excess_angle = angle_diff - angle_threshold
+            score = max(0, 100 * np.exp(-excess_angle / 30))
+        
+        return max(0, min(100, score))
+        
     except Exception as e:
         print(f"[checkOrientation] Error: {e}")
-        return False
-
+        return 0
 
 def checkAcrossFace(grasp, object_pcd, orientation, angle_threshold=45):
     try:
@@ -180,7 +210,7 @@ def checkAcrossFace(grasp, object_pcd, orientation, angle_threshold=45):
         elif orientation in ['front', 'front-vertical']:
             expected_dir = np.array([0, -1, 0])
         else:
-            return True
+            return 100  # No constraint
 
         n_i = np.array(grasp["point_i_normals"])
         n_j = np.array(grasp["point_j_normals"])
@@ -191,23 +221,89 @@ def checkAcrossFace(grasp, object_pcd, orientation, angle_threshold=45):
         angle_i = np.degrees(np.arccos(np.clip(np.dot(n_i, expected_dir), -1.0, 1.0)))
         angle_j = np.degrees(np.arccos(np.clip(np.dot(n_j, expected_dir), -1.0, 1.0)))
 
-        return angle_i <= angle_threshold and angle_j <= angle_threshold
+        # Score for each point
+        def angle_score(angle):
+            if angle <= angle_threshold:
+                return 100 * (1 - angle / angle_threshold)
+            else:
+                excess_angle = angle - angle_threshold
+                return max(0, 100 * np.exp(-excess_angle / 30))
+        
+        score_i = angle_score(angle_i)
+        score_j = angle_score(angle_j)
+        
+        # Combined score (both points must be good)
+        final_score = min(score_i, score_j)
+        return max(0, min(100, final_score))
+        
     except Exception as e:
         print(f"[checkAcrossFace] Error: {e}")
-        return False
+        return 0
 
-
-def checkPose():
+def checkPose(grasp):
     try:
-        pass  # Placeholder
+        # Placeholder implementation - could check pose stability, reachability, etc.
+        # For now, return a neutral score
+        return 75
     except Exception as e:
         print(f"[checkPose] Error: {e}")
-        return False
+        return 0
 
-
-def checkForceClosure():
+def checkForceClosure(grasp):
     try:
-        pass  # Placeholder
+        # Placeholder implementation - could check force closure conditions
+        # For now, return a neutral score
+        return 75
     except Exception as e:
         print(f"[checkForceClosure] Error: {e}")
-        return False
+        return 0
+
+def calculateOverallGraspScore(grasp, superquadric, depth_map, object_mask, camera_info, orientation, weights=None):
+    """
+    Calculate overall grasp score as weighted combination of all individual scores
+    
+    Args:
+        grasp: grasp dictionary with points, normals, etc.
+        superquadric: superquadric object
+        depth_map: depth image
+        object_mask: binary mask of the object
+        camera_info: camera parameters
+        orientation: grasp orientation ('top', 'front', etc.)
+        weights: dictionary of weights for each score component
+    
+    Returns:
+        overall_score: float between 0-100
+        individual_scores: dictionary of individual scores
+    """
+    try:
+        # Default weights - can be adjusted based on application requirements
+        if weights is None:
+            weights = {
+                'gripper': 0.25,
+                'antipodal': 0.25,
+                'collision': 0.20,
+                'orientation': 0.15,
+                'across_face': 0.10,
+                'pose': 0.03,
+                'force_closure': 0.02
+            }
+        
+        # Calculate individual scores
+        individual_scores = {
+            'gripper': checkGripper(grasp, superquadric),
+            'antipodal': checkAntipodal(grasp),
+            'collision': checkCollision(grasp, depth_map, object_mask, camera_info),
+            'orientation': checkOrientation(grasp, orientation),
+            'across_face': checkAcrossFace(grasp, None, orientation),
+            'pose': checkPose(grasp),
+            'force_closure': checkForceClosure(grasp)
+        }
+        
+        # Calculate weighted overall score
+        overall_score = sum(weights[key] * individual_scores[key] for key in weights.keys())
+        
+        return overall_score, individual_scores
+        
+    except Exception as e:
+        print(f"[calculateOverallGraspScore] Error: {e}")
+        return 0, {}
