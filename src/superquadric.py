@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.8
+#!/usr/bin/env python3
 
 import numpy as np
 import open3d as o3d
@@ -18,7 +18,7 @@ class Superquadric:
         self.rawData = pcd.getRawData()
 
         #estimate values of e
-        self.e1, self.e2 = self.defineE()
+        self.e1, self.e2 = self.estimateE()
 
         # self.sq_pcd, self.sq_params = self.fit_superquadric_cloud()
 
@@ -58,95 +58,7 @@ class Superquadric:
         e2 = np.clip(1 + ((krt[0] + krt[1]) / 2 - 3) * 0.1, 0.3, 2.0)
 
         return e1, e2
-        
-    def defineE(self):
-        try:
-            # cn = (self.class_name or "").lower()
-            # if re.search(r"can|cup|mug", cn):   return 0.1, 1.0   # cylinder
-            # if re.search(r"box", cn):           return 0.3, 0.3   # cuboid
-            # if re.search(r"ball|sphere", cn):   return 1.0, 1.0   # sphere
-            # if re.search(r"bowl|plate", cn):    return 0.6, 0.6
-            return self.estimateE()   
-        except Exception as e:
-            print(f'defineE Error: {e}')
-            return 1, 1
     
-    # def pca_align(self):
-    #     xyz = np.asarray(self.pointCloudModel.points)
-    #     center = xyz.mean(0)
-    #     xyz_c = xyz - center
-    #     eigv, eigvec = np.linalg.eigh(np.cov(xyz_c.T))
-        
-    #     # Sort by eigenvalue magnitude
-    #     idx = eigv.argsort()[::-1]
-    #     eigv = eigv[idx]
-    #     eigvec = eigvec[:, idx]
-        
-    #     # Ensure consistent eigenvector orientation
-    #     for i in range(3):
-    #         if eigvec[i, i] < 0:
-    #             eigvec[:, i] *= -1
-        
-    #     # Check for near-degenerate cases
-    #     if eigv[0] / eigv[1] < 1.1 or eigv[1] / eigv[2] < 1.1:
-    #         # Use more stable alignment for near-spherical objects
-    #         pass  # Consider alternative alignment
-        
-    #     return (xyz_c @ eigvec, eigvec, center)
-
-    # # ───────────── residual (radial-weighted) ───────────────────
-    # def _sq_F(self, a1,a2,a3,e1,e2, xyz):
-    #     x,y,z = xyz[:,0]/a1, xyz[:,1]/a2, xyz[:,2]/a3
-    #     f = (np.abs(x)**(2/e2)+np.abs(y)**(2/e2))**(e2/e1) + np.abs(z)**(2/e1) - 1
-    #     return f
-
-    # def _res_scales(self, a, xyz, e1, e2):
-    #     return np.linalg.norm(xyz,axis=1) * self._sq_F(a[0],a[1],a[2], e1,e2, xyz)
-
-    # # ───────────── scale optimiser (ε fixed) ────────────────────
-    # def fit_scales(self, xyz: np.ndarray, e1: float, e2: float):
-    #     # More robust initial guess
-    #     a0 = np.percentile(np.abs(xyz), 90, axis=0)  # Use 90th percentile instead of max
-        
-    #     # Add bounds to prevent unrealistic scales
-    #     bounds = (a0 * 0.1, a0 * 10)
-        
-    #     res = least_squares(self._res_scales, a0, args=(xyz, e1, e2),
-    #                         method='trf', bounds=bounds, max_nfev=200)
-    #     mse = res.cost / xyz.shape[0]
-    #     return res.x, mse
-
-    # # ───────────── dense SQ sampler ─────────────────────────────
-    # def sample_sq(self, a1,a2,a3,e1,e2, n_th=72, n_ph=144):
-    #     th = np.linspace(-np.pi/2, np.pi/2, n_th)
-    #     ph = np.linspace(-np.pi,   np.pi,   n_ph)
-    #     th,ph = np.meshgrid(th, ph, indexing='ij'); th,ph = th.ravel(), ph.ravel()
-    #     ce = np.sign(np.cos(th))*np.abs(np.cos(th))**e1
-    #     se = np.sign(np.sin(th))*np.abs(np.sin(th))**e1
-    #     co = np.sign(np.cos(ph))*np.abs(np.cos(ph))**e2
-    #     so = np.sign(np.sin(ph))*np.abs(np.sin(ph))**e2
-    #     pts = np.column_stack((a1*ce*co, a2*ce*so, a3*se))
-    #     return o3d.geometry.PointCloud(o3d.utility.Vector3dVector(pts))
-
-    # # ───────────── public API ───────────────────────────────────
-    # def fit_superquadric_cloud(self):
-
-    #     # 2. PCA align
-    #     xyz_aligned, R, center = self.pca_align()
-
-    #     # 4. optimise scales only
-    #     scales, mse = self.fit_scales(xyz_aligned, self.e1, self.e2)
-    #     a1,a2,a3 = scales
-
-    #     # 5. sample & transform back
-    #     sq = self.sample_sq(a1,a2,a3,self.e1,self.e2)
-    #     sq.points = o3d.utility.Vector3dVector(np.asarray(sq.points) @ R.T + center)
-    #     sq.estimate_normals()
-
-    #     params = dict(a1=a1,a2=a2,a3=a3,e1=self.e1,e2=self.e2,rms=np.sqrt(mse))
-    #     sq = self.make_concave_if_bowl_or_cup(sq)
-    #     return sq, params 
-            
     def createSuperquadric(self):
 
         e1, e2 = self.e1, self.e2
