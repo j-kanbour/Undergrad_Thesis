@@ -1,229 +1,180 @@
-#!/usr/bin/env python3
-
+from pointCloudData import PointCloudData
 import numpy as np
 import open3d as o3d
 from scipy.stats import kurtosis
 import copy
+import math
+import re
 
 class Superquadric:
-    def __init__(self, object_ID, class_name, pcd):
+    def __init__(self, object_ID, class_name, raw_rgb, raw_depth=None, mask=None, camera_info=None):
         self.print = lambda *args, **kwargs: print("Superquadric:", *args, **kwargs)
 
         self.object_ID = object_ID
         self.class_name = class_name.lower()
 
         #built point cloud from raw data
-        self.pcdObejct = pcd
-        self.pointCloudModel = pcd.getPCD()
-        self.rawData = pcd.getRawData()
+        self.pcd = PointCloudData(object_ID, raw_rgb, raw_depth, mask, camera_info)
 
         #estimate values of e
-        self.e1, self.e2 = self.estimateE()
+        self.e1, self.e2 = self.estimateE(class_name, self.pcd)
 
-        # self.sq_pcd, self.sq_params = self.fit_superquadric_cloud()
-
-        #determine superquadric values
-        self.modelValues = self.createSuperquadric()
-
-        self.rawSuperquadric = self.createSuperquadricAsPCD()
+        self.superquadric = self.createSuperquadric(self.pcd, self.e1, self.e2,)
 
         #using ICP aligned the superquadric estimate to the target object
-        self.aligned_PCD = self.alignWithICP()
+        # self.aligned_PCD = self.alignWithICP()
 
-        #using ICP aligned the superquadric estimate to the target object
-        # self.aligned_PCD = self.createSuperquadricAsPCD()
-                
-    def estimateE(self):
-        # Use multiple frames or add smoothing
-
-        #get point cloud as point array
-        points = np.asarray(self.pointCloudModel.points)
-
-        if points.shape[0] < 10:
-            self.print("Not enough points to estimate shape reliably.")
-            return 1.0, 1.0
-
-        centroid = self.pcdObejct.getCentroid()
-        centered_points = points - centroid
-
-        # Compute Fisher kurtosis for x, y, z axes of the point cloud
-        #   Kurtosis:  is a statistical measure that describes the "tailedness" of a 
-        #              probability distribution, essentially indicating how many outliers are present
-        krt = kurtosis(centered_points, axis=0, fisher=True, bias=False)
-
-        # Shape parameter along z-axis based on kurtosis (controls superquadric elongation or flattening)
-        e1 = np.clip(1 + (krt[2] - 3) * 0.1, 0.3, 2.0)
-
-        # Shape parameter along xy-plane based on average x and y kurtosis
-        e2 = np.clip(1 + ((krt[0] + krt[1]) / 2 - 3) * 0.1, 0.3, 2.0)
-
-        return e1, e2
-    
-    def createSuperquadric(self):
-
-        e1, e2 = self.e1, self.e2
-
-        boundingBox = self.pcdObejct.getBoundingBox()
-        extent = boundingBox.extent
- 
-        alpha1 = extent[0] / 2
-        alpha2 = extent[1] / 2
-        alpha3 = extent[2] / 2
-
-        def fexp(x,p):
-            return (np.sign(x) * (np.abs(x)**p))
-
-        phi, theta = np.mgrid[0:np.pi:80j, 0:2*np.pi:80j]
-
-        x = alpha1 * (fexp(np.sin(phi),e1)) * (fexp(np.cos(theta),e2))
-        y = alpha2 * (fexp(np.sin(phi),e1)) * (fexp(np.sin(theta),e2))
-        z = alpha3 * (fexp(np.cos(phi),e1))
-        
-        axis = self.pcdObejct.getAxis()  # 3x3 rotation matrix
-        center = self.pcdObejct.getCentroid() # 3D centre of the bounding box
-
-        # Stack your generated superquadric grid into points
-        points = np.vstack((x.flatten(), y.flatten(), z.flatten())).T  # (N, 3)
-
-        # Transform points:
-        #   - First rotate them using the OBB axes
-        #   - Then translate them to the OBB centre
-        points_transformed = points @ axis.T  # (N, 3)
-
-        # Unpack back to x_final, y_final, z_final in original grid shape
-        x_final = points_transformed[:, 0].reshape(x.shape) + center[0]
-        y_final = points_transformed[:, 1].reshape(y.shape) + center[1]
-        z_final = points_transformed[:, 2].reshape(z.shape) + center[2]
-
-        return x_final, y_final, z_final
-
-    def alignWithICP(self):
+    def estimateE(self, class_name, pcd):
         """
-        Aligns the raw superquadric to the visible point cloud using Point-to-Point ICP,
-        transforms the parametric mesh points, and estimates surface normals.
-        """ 
-        s = self.rawSuperquadric
-        t = self.pointCloudModel
+            e1 and e2 bounds for different primitives
 
-        source = copy.deepcopy(s)
-        target = copy.deepcopy(t)
+            Cylinder: 0.1, 1
+            Cuboid: 0.1, 2
+            Sphere: 1, 1
+            ...
+        """
 
-        threshold = 0.02
-        voxel_size = threshold / 2
+        if re.search(r"can", class_name):
+            return 0.1, 1
 
-        # Optional downsampling (improves ICP stability)
-        source_down = source.voxel_down_sample(voxel_size)
-        target_down = target.voxel_down_sample(voxel_size)
+        elif re.search(r"box", class_name):
+            return 0.1, 2
 
-        trans_init = np.eye(4)
+        elif re.search(r"ball", class_name):
+            return 1, 1
+        elif re.search(r"bowl", class_name):
+            return 0, 0
+        elif re.search(r"plate", class_name):
+            return 0, 0
+        else:
+            #get point cloud as point array
+            print(pcd)
+            points = np.asarray(pcd.getPCD().points)
 
-        reg_p2p = o3d.pipelines.registration.registration_icp(
-            source_down, target_down, threshold, trans_init,
-            o3d.pipelines.registration.TransformationEstimationPointToPoint()
-        )
+            if points.shape[0] < 10:
+                self.print("Not enough points to estimate shape reliably.")
+                return 1.0, 1.0
 
-        # Transform model values
-        x, y, z = self.modelValues
-        points = np.vstack((x.flatten(), y.flatten(), z.flatten())).T
-        points_hom = np.hstack((points, np.ones((points.shape[0], 1))))
-        transformed_points = (reg_p2p.transformation @ points_hom.T).T[:, :3]
+            centroid = pcd.getCentroid()
+            centered_points = points - centroid
 
-        x_final = transformed_points[:, 0].reshape(x.shape)
-        y_final = transformed_points[:, 1].reshape(y.shape)
-        z_final = transformed_points[:, 2].reshape(z.shape)
-        self.modelValues = (x_final, y_final, z_final)
+            # Compute Fisher kurtosis for x, y, z axes of the point cloud
+            #   Kurtosis:  is a statistical measure that describes the "tailedness" of a 
+            #              probability distribution, essentially indicating how many outliers are present
+            krt = kurtosis(centered_points, axis=0, fisher=True, bias=False)
 
-        # Create final aligned point cloud
-        aligned_pcd = o3d.geometry.PointCloud()
-        aligned_pcd.points = o3d.utility.Vector3dVector(transformed_points)
+            # Shape parameter along z-axis based on kurtosis (controls superquadric elongation or flattening)
+            e1 = np.clip(1 + (krt[2] - 3) * 0.1, 0.3, 2.0)
 
-        # Step 1: estimate normals (safe)
-        aligned_pcd.estimate_normals(
-            search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.01, max_nn=100)
-        )
+            # Shape parameter along xy-plane based on average x and y kurtosis
+            e2 = np.clip(1 + ((krt[0] + krt[1]) / 2 - 3) * 0.1, 0.3, 2.0)
 
-        # Step 2: optionally orient normals (on downsampled points to avoid Qhull crash)
-        try:
-            aligned_down = aligned_pcd.voxel_down_sample(voxel_size=0.005)
-            aligned_down.estimate_normals(
-                search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.01, max_nn=30)
-            )
-            aligned_down.orient_normals_consistent_tangent_plane(k=10)
-
-            # Transfer normals back (approximate)
-            from scipy.spatial import cKDTree
-            source_points = np.asarray(aligned_down.points)
-            source_normals = np.asarray(aligned_down.normals)
-            full_points = np.asarray(aligned_pcd.points)
-
-            tree = cKDTree(source_points)
-            _, indices = tree.query(full_points)
-            aligned_pcd.normals = o3d.utility.Vector3dVector(source_normals[indices])
-        except Exception as e:
-            self.print("Normal orientation skipped (safe fallback):", e)
-        aligned_pcd = self.make_concave_if_bowl_or_cup(aligned_pcd)
-        return aligned_pcd
-
-
-    def createSuperquadricAsPCD(self):
-        """Builds PCD based on superquadric values"""
-        points = np.vstack((self.modelValues[0].flatten(),
-                            self.modelValues[1].flatten(),
-                            self.modelValues[2].flatten())).T
-        pcd = o3d.geometry.PointCloud()
-        pcd.points = o3d.utility.Vector3dVector(points)
-
-        return pcd
+            self.print(f"Estimated e1: {e1:.3f}, e2: {e2:.3f}")
+            return e1, e2
+            
+    def createSuperquadric(self, pcd, e1, e2, res_u, res_v, n_points=40000):
         
-    def make_concave_if_bowl_or_cup(self, sq_pcd):
-        if "bowl" not in self.class_name:
-            return  sq_pcd# Do nothing for other objects
+        eta = np.linspace(-np.pi/2, np.pi/2, res_u)
+        omega = np.linspace(-np.pi, np.pi, res_v, endpoint=False)
+        Eta, Omega = np.meshgrid(eta, omega, indexing="ij")
 
+        extentOfPcd = pcd.getBoundingBox().extent
+        a1, a2, a3 = extentOfPcd[0]/2, extentOfPcd[1]/2, extentOfPcd[2]/2, 
 
-        original = sq_pcd
-        original_points = np.asarray(original.points)
+        def sgn(x):  # sign with zero preserved
+            return np.sign(x + 1e-15)
 
-        # Step 1: Shift the points upward by 5 mm (0.005 m)
-        shifted_points = original_points.copy()
-        shifted_points[:, 2] += 0.005
+        ce, se = np.cos(Eta), np.sin(Eta)
+        co, so = np.cos(Omega), np.sin(Omega)
 
-        shifted_pcd = o3d.geometry.PointCloud()
-        shifted_pcd.points = o3d.utility.Vector3dVector(shifted_points)
+        x = a1 * sgn(ce) * np.abs(ce)**e1 * sgn(co) * np.abs(co)**e2
+        y = a2 * sgn(ce) * np.abs(ce)**e1 * sgn(so) * np.abs(so)**e2
+        z = a3 * sgn(se) * np.abs(se)**e1
 
-        # Step 2: Use distance filtering to keep only points in original but not in shifted
-        original_tree = o3d.geometry.KDTreeFlann(original)
+        V = np.stack([x, y, z], axis=-1).reshape(-1, 3)
 
-        concave_points = []
-        for pt in shifted_points:
-            [k, idx, _] = original_tree.search_radius_vector_3d(pt, 0.002)
-            if k == 0:
-                concave_points.append(pt)
+        faces = []
+        for i in range(res_u - 1):
+            for j in range(res_v):
+                jn = (j + 1) % res_v
+                v00 = i * res_v + j
+                v01 = i * res_v + jn
+                v10 = (i + 1) * res_v + j
+                v11 = (i + 1) * res_v + jn
+                faces.append([v00, v10, v11])
+                faces.append([v00, v11, v01])
 
-        # Combine original and subtractive to form a concave shell
-        concave_points = np.vstack(concave_points) if concave_points else original_points
+        mesh = o3d.geometry.TriangleMesh(
+            vertices=o3d.utility.Vector3dVector(V),
+            triangles=o3d.utility.Vector3iVector(np.asarray(faces, dtype=np.int32)),
+        )
+        mesh.remove_duplicated_vertices()
+        mesh.remove_degenerate_triangles()
+        mesh.compute_vertex_normals()
 
-        concave_pcd = o3d.geometry.PointCloud()
-        concave_pcd.points = o3d.utility.Vector3dVector(concave_points)
-        concave_pcd.estimate_normals()
+        superquadricPcd = mesh.sample_points_poisson_disk(number_of_points=n_points, init_factor=5)
+        # If you prefer a faster even triangle based sampler:
+        # pcd = mesh.sample_points_uniformly(number_of_points=n_points)
+        superquadricPcd.estimate_normals()
+        return superquadricPcd
 
-        return concave_pcd
+    # def alignWithICP(self):
+        
+    #     """NOTE: WTF is going on here"""
 
+    #     s = self.superquadric
+    #     t = self.pcd.getPCD()
 
-    def getSuperquadricAsPCD(self):
-        if self.aligned_PCD: 
-            return self.aligned_PCD
-        return self.createSuperquadricAsPCD()
+    #     # Safe deep copies
+    #     source = copy.deepcopy(s)
+    #     target = copy.deepcopy(t)
+
+    #     threshold=0.02
+
+    #     # Optional: downsampling (safe, improves stability)
+    #     voxel_size = threshold / 2
+    #     source_down = source.voxel_down_sample(voxel_size)
+    #     target_down = target.voxel_down_sample(voxel_size)
+
+    #     trans_init = np.eye(4)
+
+    #     # Use PointToPoint ICP — much safer for parametric model
+    #     reg_p2p = o3d.pipelines.registration.registration_icp(
+    #         source_down, target_down, threshold, trans_init,
+    #         o3d.pipelines.registration.TransformationEstimationPointToPoint()
+    #     )
+    #     self.print("ICP Fitness:", reg_p2p.fitness)
+    #     self.print("ICP Inlier RMSE:", reg_p2p.inlier_rmse)
+
+    #     # Apply transformation to your modelValues
+    #     x, y, z = self.modelValues
+    #     points = np.vstack((x.flatten(), y.flatten(), z.flatten())).T
+    #     points_hom = np.hstack((points, np.ones((points.shape[0], 1))))
+    #     transformed_points = (reg_p2p.transformation @ points_hom.T).T[:, :3]
+
+    #     # Reshape back to original shapes
+    #     x_final = transformed_points[:, 0].reshape(x.shape)
+    #     y_final = transformed_points[:, 1].reshape(y.shape)
+    #     z_final = transformed_points[:, 2].reshape(z.shape)
+
+    #     self.modelValues = (x_final, y_final, z_final)
+
+    #     # Return aligned superquadric PCD
+    #     aligned_pcd = o3d.geometry.PointCloud()
+    #     aligned_pcd.points = o3d.utility.Vector3dVector(transformed_points)
+    #     aligned_pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.01, max_nn=100))
+    #     aligned_pcd.orient_normals_consistent_tangent_plane(k=10)
+
+    #     return aligned_pcd
     
-    def getSuperquadricParams(self):
-        return self.sq_params
+    def getSuperquadricAsPCD(self):
+        return self.superquadric
 
     def getPCD(self):
-        return self.pcdObejct
-    
-    def getRawData(self):
-        return self.rawData
+        return self.pcd
     
     # def getAlignedPCD(self):
     #     return self.aligned_PCD
 
-
+    def updateSuperquadric(self):
+        pass

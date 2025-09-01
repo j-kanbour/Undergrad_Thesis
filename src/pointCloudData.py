@@ -12,6 +12,7 @@ class PointCloudData:
         self.object_ID = object_ID
         self.raw_rgb = self.bridge.imgmsg_to_cv2(raw_rgb, 'bgr8')
         self.raw_depth = self.bridge.imgmsg_to_cv2(raw_depth, desired_encoding="passthrough")
+
         self.mask = mask
         self.masked_depth = None
         self.camera_info = camera_info
