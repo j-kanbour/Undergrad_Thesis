@@ -7,7 +7,7 @@ import psutil
 # from grasps import Grasps
 import numpy as np
 
-""" Test 5"""
+""" Test 1: modelling"""
 def test1(model):
 
     #load data models
@@ -76,48 +76,48 @@ def test1(model):
     vis.run()
     vis.destroy_window()
 
-""" Test 6 """
+""" Test 2: graps """
 def test2(model):
     
+    #load data models
     if model == "1":
-        rgb_path = "data/rgb_and_depth_data/000001/rgb/000000.png"
-        depth_path = "data/rgb_and_depth_data/000001/depth/000000.png"
-        mask_path = "data/rgb_and_depth_data/000001/mask_visib/000000_000000.png"
-        scene_info_json = "data/rgb_and_depth_data/000001/scene_camera.json"
-        class_name = "bottle"
+        rgb_path = "../data/rgb_and_depth_data/000001/rgb/000000.png"
+        depth_path = "../data/rgb_and_depth_data/000001/depth/000000.png"
+        mask_path = "../data/rgb_and_depth_data/000001/mask_visib/000000_000000.png"
+        scene_info_json = ["../data/rgb_and_depth_data/000001/scene_camera.json","0"]
+        class_name="bottle"
         object_ID = 1
 
     elif model == "2":
-        rgb_path = "data/rgb_and_depth_data/000001/rgb/000001.png"
-        depth_path = "data/rgb_and_depth_data/000001/depth/000001.png"
-        mask_path = "data/rgb_and_depth_data/000001/mask_visib/000000_000001.png"
-        scene_info_json = "data/rgb_and_depth_data/000001/scene_camera.json"
-        class_name = "can"
+        rgb_path = "../data/rgb_and_depth_data/000001/rgb/000001.png"
+        depth_path = "../data/rgb_and_depth_data/000001/depth/000001.png"
+        mask_path = "../data/rgb_and_depth_data/000001/mask_visib/000000_000001.png"
+        scene_info_json = ["../data/rgb_and_depth_data/000001/scene_camera.json","1"]
+        class_name="can"
         object_ID = 2
 
     elif model == "3":
-        rgb_path = "data/rgb_and_depth_data/000008/rgb/000000.png"
-        depth_path = "data/rgb_and_depth_data/000008/depth/000000.png"
-        mask_path = "data/rgb_and_depth_data/000008/mask_visib/000001_000001.png"
-        scene_info_json = "data/rgb_and_depth_data/000008/scene_camera.json"
-        class_name = "can"
+        rgb_path = "../data/rgb_and_depth_data/000008/rgb/000000.png"
+        depth_path = "../data/rgb_and_depth_data/000008/depth/000000.png"
+        mask_path = "../data/rgb_and_depth_data/000008/mask_visib/000001_000001.png"
+        scene_info_json = ["../data/rgb_and_depth_data/000008/scene_camera.json","0"]
+        class_name="can"
         object_ID = 3
 
     elif model == "4":
-        rgb_path = "data/rgb_and_depth_data/000005/rgb/000000.png"
-        depth_path = "data/rgb_and_depth_data/000005/depth/000000.png"
-        mask_path = "data/rgb_and_depth_data/000005/mask_visib/000001_000001.png"
-        scene_info_json = "data/rgb_and_depth_data/000005/scene_camera.json"
-        class_name = "can"
+        rgb_path = "../data/rgb_and_depth_data/000005/rgb/000000.png"
+        depth_path = "../data/rgb_and_depth_data/000005/depth/000000.png"
+        mask_path = "../data/rgb_and_depth_data/000005/mask_visib/000001_000001.png"
+        scene_info_json = ["../data/rgb_and_depth_data/000005/scene_camera.json","0"]
+        class_name="box"
         object_ID = 3
 
     elif model == "5":
-        rgb_path = "data/rgb_and_depth_data/000005/rgb/000004.png"
-        depth_path = "data/rgb_and_depth_data/000005/depth/000004.png"
-        mask_path = "data/rgb_and_depth_data/000005/mask_visib/000004_000010.png"
-        scene_info_json = "data/rgb_and_depth_data/000005/scene_camera.json"
+        rgb_path = "../data/rgb_and_depth_data/000005/rgb/000004.png"
+        depth_path = "../data/rgb_and_depth_data/000005/depth/000004.png"
+        mask_path = "../data/rgb_and_depth_data/000005/mask_visib/000004_000010.png"
+        scene_info_json = ["../data/rgb_and_depth_data/000005/scene_camera.json","4"]
         object_ID = 3
-
     # CPU profiling start
     process = psutil.Process(os.getpid())
     process.cpu_percent(interval=None)  # prime
