@@ -7,64 +7,49 @@ import psutil
 # from grasps import Grasps
 import numpy as np
 
-""" Test 5
-
-Input:  
-- given separate RGB and Depth image of a scene
-- there will be only one target object
-- the target object is in not in isolation
-- the images are from a single perspective
-
-Additional Processes: 
-- YOLOv11 will be used to isolate the object 
-- The process will provide a bitwise mask of the object in scene
-
-Output:
-- A single superquadric that provides the best possible model for the given object
-"""
+""" Test 5"""
 def test1(model):
-    
 
     #load data models
-    rgb_path = "data/rgb_and_depth_data/000001/rgb/000000.png"
-    depth_path = "data/rgb_and_depth_data/000001/depth/000000.png"
-    mask_path = "data/rgb_and_depth_data/000001/mask_visib/000000_000000.png"
-    scene_info_json = "data/rgb_and_depth_data/000001/scene_camera.json"
-    class_name="Bottle"
-    object_ID = 1
+    if model == "1":
+        rgb_path = "../data/rgb_and_depth_data/000001/rgb/000000.png"
+        depth_path = "../data/rgb_and_depth_data/000001/depth/000000.png"
+        mask_path = "../data/rgb_and_depth_data/000001/mask_visib/000000_000000.png"
+        scene_info_json = ["../data/rgb_and_depth_data/000001/scene_camera.json","0"]
+        class_name="bottle"
+        object_ID = 1
 
-    if model == "2":
-        rgb_path = "data/rgb_and_depth_data/000001/rgb/000001.png"
-        depth_path = "data/rgb_and_depth_data/000001/depth/000001.png"
-        mask_path = "data/rgb_and_depth_data/000001/mask_visib/000000_000001.png"
-        scene_info_json = "data/rgb_and_depth_data/000001/scene_camera.json"
-        class_name="Can"
+    elif model == "2":
+        rgb_path = "../data/rgb_and_depth_data/000001/rgb/000001.png"
+        depth_path = "../data/rgb_and_depth_data/000001/depth/000001.png"
+        mask_path = "../data/rgb_and_depth_data/000001/mask_visib/000000_000001.png"
+        scene_info_json = ["../data/rgb_and_depth_data/000001/scene_camera.json","1"]
+        class_name="can"
         object_ID = 2
 
-    if model == "3":
-        rgb_path = "data/rgb_and_depth_data/000008/rgb/000000.png"
-        depth_path = "data/rgb_and_depth_data/000008/depth/000000.png"
-        mask_path = "data/rgb_and_depth_data/000008/mask_visib/000001_000001.png"
-        scene_info_json = "data/rgb_and_depth_data/000008/scene_camera.json"
-        class_name="Can"
+    elif model == "3":
+        rgb_path = "../data/rgb_and_depth_data/000008/rgb/000000.png"
+        depth_path = "../data/rgb_and_depth_data/000008/depth/000000.png"
+        mask_path = "../data/rgb_and_depth_data/000008/mask_visib/000001_000001.png"
+        scene_info_json = ["../data/rgb_and_depth_data/000008/scene_camera.json","0"]
+        class_name="can"
         object_ID = 3
 
-    if model == "4":
-        rgb_path = "data/rgb_and_depth_data/000005/rgb/000000.png"
-        depth_path = "data/rgb_and_depth_data/000005/depth/000000.png"
-        mask_path = "data/rgb_and_depth_data/000005/mask_visib/000001_000001.png"
-        scene_info_json = "data/rgb_and_depth_data/000005/scene_camera.json"
-        class_name="Box"
+    elif model == "4":
+        rgb_path = "../data/rgb_and_depth_data/000005/rgb/000000.png"
+        depth_path = "../data/rgb_and_depth_data/000005/depth/000000.png"
+        mask_path = "../data/rgb_and_depth_data/000005/mask_visib/000001_000001.png"
+        scene_info_json = ["../data/rgb_and_depth_data/000005/scene_camera.json","0"]
+        class_name="box"
         object_ID = 3
 
-    if model == "5":
-        rgb_path = "data/rgb_and_depth_data/000005/rgb/000004.png"
-        depth_path = "data/rgb_and_depth_data/000005/depth/000004.png"
-        mask_path = "data/rgb_and_depth_data/000005/mask_visib/000004_000010.png"
-        scene_info_json = "data/rgb_and_depth_data/000005/scene_camera.json"
+    elif model == "5":
+        rgb_path = "../data/rgb_and_depth_data/000005/rgb/000004.png"
+        depth_path = "../data/rgb_and_depth_data/000005/depth/000004.png"
+        mask_path = "../data/rgb_and_depth_data/000005/mask_visib/000004_000010.png"
+        scene_info_json = ["../data/rgb_and_depth_data/000005/scene_camera.json","4"]
         object_ID = 3
     
-
     # Core operation
     superquadric = Superquadric(
         object_ID=object_ID,
@@ -91,53 +76,42 @@ def test1(model):
     vis.run()
     vis.destroy_window()
 
-""" Test 6
-
-Input:  
-- given a single RGB-D image of a scene
-- there will be only one target object
-- the target object is in not in isolation
-- the image is from a single perspective
-
-Additional Processes: 
-- YOLOv11 will be used to isolate the object 
-- The process will provide a bitwise mask of the object in scene
-
-Output:
-- A single superquadric that provides the best possible model for the given object
-"""
+""" Test 6 """
 def test2(model):
-    rgb_path = "data/rgb_and_depth_data/000001/rgb/000000.png"
-    depth_path = "data/rgb_and_depth_data/000001/depth/000000.png"
-    mask_path = "data/rgb_and_depth_data/000001/mask_visib/000000_000000.png"
-    scene_info_json = "data/rgb_and_depth_data/000001/scene_camera.json"
-    class_name = "Bottle"
-    object_ID = 1
+    
+    if model == "1":
+        rgb_path = "data/rgb_and_depth_data/000001/rgb/000000.png"
+        depth_path = "data/rgb_and_depth_data/000001/depth/000000.png"
+        mask_path = "data/rgb_and_depth_data/000001/mask_visib/000000_000000.png"
+        scene_info_json = "data/rgb_and_depth_data/000001/scene_camera.json"
+        class_name = "bottle"
+        object_ID = 1
 
-    if model == "2":
+    elif model == "2":
         rgb_path = "data/rgb_and_depth_data/000001/rgb/000001.png"
         depth_path = "data/rgb_and_depth_data/000001/depth/000001.png"
         mask_path = "data/rgb_and_depth_data/000001/mask_visib/000000_000001.png"
         scene_info_json = "data/rgb_and_depth_data/000001/scene_camera.json"
-        class_name = "Can"
+        class_name = "can"
         object_ID = 2
 
-    if model == "3":
+    elif model == "3":
         rgb_path = "data/rgb_and_depth_data/000008/rgb/000000.png"
         depth_path = "data/rgb_and_depth_data/000008/depth/000000.png"
         mask_path = "data/rgb_and_depth_data/000008/mask_visib/000001_000001.png"
         scene_info_json = "data/rgb_and_depth_data/000008/scene_camera.json"
-        class_name = "Can"
+        class_name = "can"
         object_ID = 3
 
-    if model == "4":
+    elif model == "4":
         rgb_path = "data/rgb_and_depth_data/000005/rgb/000000.png"
         depth_path = "data/rgb_and_depth_data/000005/depth/000000.png"
         mask_path = "data/rgb_and_depth_data/000005/mask_visib/000001_000001.png"
         scene_info_json = "data/rgb_and_depth_data/000005/scene_camera.json"
+        class_name = "can"
         object_ID = 3
 
-    if model == "5":
+    elif model == "5":
         rgb_path = "data/rgb_and_depth_data/000005/rgb/000004.png"
         depth_path = "data/rgb_and_depth_data/000005/depth/000004.png"
         mask_path = "data/rgb_and_depth_data/000005/mask_visib/000004_000010.png"
@@ -219,12 +193,6 @@ def test2(model):
     vis.add_geometry(pointcloud.getPCD())
     vis.add_geometry(aligned_superquadric_pcd)
 
-    # Add object and aligned superquadric
-    #vis.add_geometry(superquadric.getSuperquadricAsPCD())
-
-    # # Add centroid
-    # vis.add_geometry(centroid)
-
     # Add axis
     vis.add_geometry(centroid)
 
@@ -281,8 +249,6 @@ def test2(model):
 
     vis.run()
     vis.destroy_window()
-
-
 
 if __name__ == "__main__":
     test_functions = {

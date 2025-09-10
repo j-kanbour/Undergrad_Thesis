@@ -1,30 +1,51 @@
 #!/usr/bin/env python3.8
 import numpy as np
+import cv2
 import open3d as o3d
-from cv_bridge import CvBridge
+import json
+import os
 
 class PointCloudData:
 
     def __init__(self, object_ID, raw_rgb, raw_depth, mask, camera_info):
         self.print = lambda *args, **kwargs: print("Point Cloud Data:", *args, **kwargs)
-        self.bridge = CvBridge()
+        assert os.path.exists(raw_rgb), f"RGB image not found: {raw_rgb}"
+        assert os.path.exists(raw_depth), f"Depth image not found: {raw_depth}"
+        assert os.path.exists(mask), f"Mask image not found: {mask}"
 
         self.object_ID = object_ID
-        self.raw_rgb = self.bridge.imgmsg_to_cv2(raw_rgb, 'bgr8')
-        self.raw_depth = self.bridge.imgmsg_to_cv2(raw_depth, desired_encoding="passthrough")
-
-        self.mask = mask
+        self.raw_rgb = cv2.cvtColor(cv2.imread(raw_rgb), cv2.COLOR_BGR2RGB)
+        self.raw_depth = cv2.imread(raw_depth, cv2.IMREAD_UNCHANGED)
+        self.mask = cv2.imread(mask, cv2.IMREAD_GRAYSCALE)
         self.masked_depth = None
-        self.camera_info = camera_info
+        self.camera_info = self.extractCameraInfo(camera_info)
 
         #convert superquadric parameters to pcd
         self.pcd = self.covertToPCD()
+        self.mirrored_pcd = self.mirror_cloud(self.pcd)
 
         #get geometric values for super_pcd
         if self.pcd:
             self.centroid = self.findCentroid()
             self.boundingBox = self.findBoundingBox()
             self.axis = self.findAxis()
+
+    def extractCameraInfo(self, camera_info):
+
+        json_path, cam_id = camera_info
+        with open(json_path, "r") as f:
+            data = json.load(f)
+        block = data[str(cam_id)]
+
+        # Build outputs
+        K = np.array(block["cam_K"], dtype=np.float64).reshape(3, 3)
+        fx, fy, cx, cy = K[0, 0], K[1, 1], K[0, 2], K[1, 2]
+
+        # Width/height: try to infer from loaded colour image on the class (if present)
+        w = h = None
+        if hasattr(self, "raw_rgb") and isinstance(self.raw_rgb, np.ndarray) and self.raw_rgb.ndim >= 2:
+            h, w = self.raw_rgb.shape[:2]
+        return [K, fx, fy, cx, cy, w, h]
 
     #mirror the partial point cloud around center axis for more refined model
     def mirror_cloud(self, pcd, keep_original=True):
@@ -98,13 +119,12 @@ class PointCloudData:
               
             # Convert to boolean mask
             # Create empty mask with same dimensions as RGB image
-            mask = np.zeros((self.camera_info.height, self.camera_info.width), dtype=np.uint8)
+            mask = np.zeros((self.camera_info[6], self.camera_info[5]), dtype=np.uint8)
             
             # Convert tuple to array of points and reshape
             points = np.array(self.mask).reshape(-1, 2)
             
             # Fill polygon using cv2 or create mask from contour
-            import cv2
             mask = cv2.fillPoly(mask, [points.astype(np.int32)], 255)
             mask = mask.astype(bool)  # Convert 0/255 to False/True
             
@@ -126,22 +146,20 @@ class PointCloudData:
                 depth_trunc=3.0,
                 convert_rgb_to_intensity=False
             )
-            
+
             # Camera intrinsics
-            K = np.array(self.camera_info.K).reshape(3, 3)
-            fx = K[0, 0]
-            fy = K[1, 1]
-            cx = K[0, 2]
-            cy = K[1, 2]
-            w = self.camera_info.width
-            h = self.camera_info.height
+            fx = self.camera_info[1]
+            fy = self.camera_info[2]
+            cx = self.camera_info[3]
+            cy = self.camera_info[4]
+            w = self.camera_info[5]
+            h = self.camera_info[6]
             intrinsic = o3d.camera.PinholeCameraIntrinsic(width=w, height=h, fx=fx, fy=fy, cx=cx, cy=cy)
             
             # Generate Point Cloud
             pcd = o3d.geometry.PointCloud.create_from_rgbd_image(rgbd, intrinsic)
             print(f'CHECKPOINT:{pcd}')
             pcd = self.removeOutliers(pcd)
-            pcd = self.mirror_cloud(pcd)
 
             return pcd
             
@@ -150,10 +168,10 @@ class PointCloudData:
             return None
 
     def findBoundingBox(self):
-        return self.pcd.get_oriented_bounding_box(True)
+        return self.mirrored_pcd.get_oriented_bounding_box(True)
 
     def findCentroid(self):
-        return self.pcd.get_center()
+        return self.mirrored_pcd.get_center()
 
     def findAxis(self):
         return self.boundingBox.R
