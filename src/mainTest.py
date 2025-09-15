@@ -67,7 +67,7 @@ def test1(model):
     vis.create_window(window_name="Target Object Point Cloud")
 
     vis.add_geometry(pointcloud.getPCD())
-    vis.add_geometry(superquadric.getSuperquadricAsPCD())
+    #vis.add_geometry(superquadric.getSuperquadricAsPCD())
     # vis.add_geometry(superquadric.getAlignedPCD())
 
     opt = vis.get_render_option()
