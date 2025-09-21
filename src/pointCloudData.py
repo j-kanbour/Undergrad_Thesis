@@ -4,6 +4,8 @@ import cv2
 import open3d as o3d
 import json
 import os
+import copy
+import matplotlib.pyplot as plt
 
 class PointCloudData:
 
@@ -22,13 +24,11 @@ class PointCloudData:
 
         #convert superquadric parameters to pcd
         self.pcd = self.covertToPCD()
-        self.mirrored_pcd = self.mirror_cloud(self.pcd)
+        self.cloud_segments = self.defineSegments(self.pcd)
 
-        #get geometric values for super_pcd
-        if self.pcd:
-            self.centroid = self.findCentroid()
-            self.boundingBox = self.findBoundingBox()
-            self.axis = self.findAxis()
+        self.centroid = self.findCentroid()
+        self.boundingBox = self.findBoundingBox()
+        self.axis = self.findAxis()
 
     def extractCameraInfo(self, camera_info):
 
@@ -167,11 +167,35 @@ class PointCloudData:
             print(f"[covertToPCD] Error: {e}")
             return None
 
+    def defineSegments(self, pcd):
+            
+        third_origional = len(pcd.points) // 3
+        cloud_segments = []
+        remaining = copy.deepcopy(pcd)
+        colors = plt.cm.get_cmap("tab10", 10)
+        count = 0
+        while len(remaining.points) > third_origional:
+            plane_model, inliers = remaining.segment_plane(distance_threshold=0.005,
+                                                    ransac_n=3,
+                                                    num_iterations=1000,
+                                                    probability=0.999)
+            [a, b, c, d] = plane_model.tolist()
+            # print(f"Plane equation: {a:.2f}x + {b:.2f}y + {c:.2f}z + {d:.2f} = 0")
+
+            inlier_cloud = remaining.select_by_index(inliers)
+            inlier_cloud = self.removeOutliers(inlier_cloud)
+            inlier_cloud.paint_uniform_color(colors(count)[:3])
+
+            cloud_segments.append(inlier_cloud)
+            remaining = remaining.select_by_index(inliers, invert=True)
+
+        return cloud_segments
+
     def findBoundingBox(self):
-        return self.mirrored_pcd.get_oriented_bounding_box(True)
+        return self.pcd.get_oriented_bounding_box(True)
 
     def findCentroid(self):
-        return self.mirrored_pcd.get_center()
+        return self.pcd.get_center()
 
     def findAxis(self):
         return self.boundingBox.R
@@ -187,6 +211,9 @@ class PointCloudData:
 
     def getAxis(self):
         return self.axis
+    
+    def getCloudSegments(self):
+        return self.cloud_segments
     
     def getRawData(self):
         return {

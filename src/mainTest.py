@@ -1,123 +1,217 @@
 
 from pointCloudData import PointCloudData
 from superquadric import Superquadric
+from pointCloudData import PointCloudData
 import open3d as o3d
 import sys, os, time
 import psutil
-# from grasps import Grasps
 import numpy as np
+import copy
+
+
+models = { 
+            "1": {
+                "rgb_path":"../data/rgb_and_depth_data/000001/rgb/000000.png",
+                "depth_path":"../data/rgb_and_depth_data/000001/depth/000000.png",
+                "mask_path":"../data/rgb_and_depth_data/000001/mask_visib/000000_000000.png",
+                "scene_info_json":["../data/rgb_and_depth_data/000001/scene_camera.json","0"],
+                "class_name":"bottle",
+                "object_ID":1
+            },
+            "2": {                
+                "rgb_path":"../data/rgb_and_depth_data/000001/rgb/000001.png",
+                "depth_path":"../data/rgb_and_depth_data/000001/depth/000002.png",
+                "mask_path":"../data/rgb_and_depth_data/000001/mask_visib/000000_000001.png",
+                "scene_info_json":["../data/rgb_and_depth_data/000001/scene_camera.json","1"],
+                "class_name":"can",
+                "object_ID":2
+            },
+            "3": {
+                "rgb_path":"../data/rgb_and_depth_data/000008/rgb/000000.png",
+                "depth_path":"../data/rgb_and_depth_data/000008/depth/000000.png",
+                "mask_path":"../data/rgb_and_depth_data/000008/mask_visib/000001_000001.png",
+                "scene_info_json":["../data/rgb_and_depth_data/000008/scene_camera.json","0"],
+                "class_name":"can",
+                "object_ID":3
+            },
+            "4": {                
+                "rgb_path":"../data/rgb_and_depth_data/000005/rgb/000000.png",
+                "depth_path":"../data/rgb_and_depth_data/000005/depth/000000.png",
+                "mask_path":"../data/rgb_and_depth_data/000005/mask_visib/000001_000001.png",
+                "scene_info_json":["../data/rgb_and_depth_data/000005/scene_camera.json","0"],
+                "class_name":"box",
+                "object_ID":4
+            },
+            "5": {                
+                "rgb_path":"../data/rgb_and_depth_data/000005/rgb/000004.png",
+                "depth_path":"../data/rgb_and_depth_data/000005/depth/000004.png",
+                "mask_path":"../data/rgb_and_depth_data/000005/mask_visib/000004_000010.png",
+                "scene_info_json":["../data/rgb_and_depth_data/000005/scene_camera.json","4"],
+                "class_name":"bottle",
+                "object_ID":5
+            }
+        }
 
 """ Test 1: modelling"""
 def test1(model):
 
-    #load data models
-    if model == "1":
-        rgb_path = "../data/rgb_and_depth_data/000001/rgb/000000.png"
-        depth_path = "../data/rgb_and_depth_data/000001/depth/000000.png"
-        mask_path = "../data/rgb_and_depth_data/000001/mask_visib/000000_000000.png"
-        scene_info_json = ["../data/rgb_and_depth_data/000001/scene_camera.json","0"]
-        class_name="bottle"
-        object_ID = 1
+    # Generate Point Cloud Model
+    init_time = time.time()
+    # generate point cloud model 
+    pcd = PointCloudData(
+        object_ID=models[model]["object_ID"],
+        raw_rgb=models[model]["rgb_path"],
+        raw_depth=models[model]["depth_path"],
+        mask=models[model]["mask_path"],
+        camera_info=models[model]["scene_info_json"]
+        )
 
-    elif model == "2":
-        rgb_path = "../data/rgb_and_depth_data/000001/rgb/000001.png"
-        depth_path = "../data/rgb_and_depth_data/000001/depth/000001.png"
-        mask_path = "../data/rgb_and_depth_data/000001/mask_visib/000000_000001.png"
-        scene_info_json = ["../data/rgb_and_depth_data/000001/scene_camera.json","1"]
-        class_name="can"
-        object_ID = 2
+    cloudSegments = pcd.getCloudSegments() #uses open3d plane segmentation 
+    # print(save_pointcloud_to_ply(pcd.getPCD(), "model_1.ply"))
+    # return
+    pcd_time = time.time()
 
-    elif model == "3":
-        rgb_path = "../data/rgb_and_depth_data/000008/rgb/000000.png"
-        depth_path = "../data/rgb_and_depth_data/000008/depth/000000.png"
-        mask_path = "../data/rgb_and_depth_data/000008/mask_visib/000001_000001.png"
-        scene_info_json = ["../data/rgb_and_depth_data/000008/scene_camera.json","0"]
-        class_name="can"
-        object_ID = 3
+    # vis = o3d.visualization.Visualizer()
+    # vis.create_window(window_name="Target Object Point Cloud")
+    # vis.add_geometry(pcd.getPCD())
 
-    elif model == "4":
-        rgb_path = "../data/rgb_and_depth_data/000005/rgb/000000.png"
-        depth_path = "../data/rgb_and_depth_data/000005/depth/000000.png"
-        mask_path = "../data/rgb_and_depth_data/000005/mask_visib/000001_000001.png"
-        scene_info_json = ["../data/rgb_and_depth_data/000005/scene_camera.json","0"]
-        class_name="box"
-        object_ID = 3
+    # # #add voxel visual mere
+    # # vis.add_geometry(voxelGrid)
 
-    elif model == "5":
-        rgb_path = "../data/rgb_and_depth_data/000005/rgb/000004.png"
-        depth_path = "../data/rgb_and_depth_data/000005/depth/000004.png"
-        mask_path = "../data/rgb_and_depth_data/000005/mask_visib/000004_000010.png"
-        scene_info_json = ["../data/rgb_and_depth_data/000005/scene_camera.json","4"]
-        object_ID = 3
+    # # # Style
+    # # opt = vis.get_render_option()
+    # # opt.line_width = 20
+
+    # # vis.run()
+    # # vis.destroy_window()
+    # # return
     
-    # Core operation
-    superquadric = Superquadric(
-        object_ID=object_ID,
-        class_name=class_name,
-        raw_rgb=rgb_path,
-        raw_depth=depth_path,
-        mask=mask_path,
-        camera_info=scene_info_json
-    )
+    # sdf, voxel_grid = utils.generate_sdf_for_mps(
+    #     pcd.getPCD(), 
+    #     method='distance_based',  # or 'voxel_grid' 
+    #     voxel_size=0.01,
+    #     truncation_distance=0.01
+    # )
 
-    # Visualisation
-    pointcloud = superquadric.pcd
+    # if sdf.any() and voxel_grid is not None: 
+    #     print("SDF and voxel grid generated successfully.")
+
+    #     # ============ VOXEL GRID VISUALIZATION OPTIONS ============
+        
+    #     # Option 1: Show all voxel centers as a point cloud
+    #     voxel_centers_pcd = o3d.geometry.PointCloud()
+    #     voxel_centers_pcd.points = o3d.utility.Vector3dVector(voxel_grid['points'].T)
+    #     voxel_centers_pcd.paint_uniform_color([0.5, 0.5, 0.5])  # Gray color
+        
+    #     # Option 2: Show only inside voxels (negative SDF)
+    #     inside_mask = sdf < 0
+    #     inside_points = voxel_grid['points'][:, inside_mask]
+    #     inside_pcd = o3d.geometry.PointCloud()
+    #     inside_pcd.points = o3d.utility.Vector3dVector(inside_points.T)
+    #     inside_pcd.paint_uniform_color([1.0, 0.0, 0.0])  # Red for inside
+        
+    #     # Option 3: Show only surface voxels (near zero SDF)
+    #     surface_mask = np.abs(sdf) < voxel_grid['truncation'] * 0.5
+    #     surface_points = voxel_grid['points'][:, surface_mask]
+    #     surface_pcd = o3d.geometry.PointCloud()
+    #     surface_pcd.points = o3d.utility.Vector3dVector(surface_points.T)
+    #     surface_pcd.paint_uniform_color([0.0, 1.0, 0.0])  # Green for surface
+        
+    #     # Visualize together
+    #     vis = o3d.visualization.Visualizer()
+    #     vis.create_window(window_name="Voxel Grid Visualization")
+    #     vis.add_geometry(pcd.getPCD())
+    #     vis.add_geometry(voxel_centers_pcd)  # Uncomment to see all voxels
+    #     vis.add_geometry(inside_pcd)         # Show inside voxels
+    #     vis.add_geometry(surface_pcd)        # Show surface voxels
+        
+    #     vis.run()
+    #     vis.destroy_window()
+
+    # file_path = r"obj_000021_normalized.csv"
+    # if not file_path:
+    #     raise ValueError("No file selected.")
+
+    # # 读取CSV文件
+    # sdf = np.genfromtxt(file_path, delimiter=',').T
+    # voxelGrid = {}
+
+    # # 设置体素网格参数
+    # voxelGrid['size'] = np.ones(3, dtype=int) * int(sdf[0])
+    # voxelGrid['range'] = sdf[1:7]
+    # sdf = sdf[7:]
+    # # 创建线性空间
+    # voxelGrid['x'] = np.linspace(voxelGrid['range'][0], voxelGrid['range'][1], int(voxelGrid['size'][0]))
+    # voxelGrid['y'] = np.linspace(voxelGrid['range'][2], voxelGrid['range'][3], int(voxelGrid['size'][1]))
+    # voxelGrid['z'] = np.linspace(voxelGrid['range'][4], voxelGrid['range'][5], int(voxelGrid['size'][2]))
+
+    # # 创建网格
+    # x, y, z = np.meshgrid(voxelGrid['x'], voxelGrid['y'], voxelGrid['z'], indexing='ij')
+    # points = np.stack((x,y,z),axis=3)
+    # voxelGrid['points'] = points.reshape((-1,3),order='F').T 
+
+    # # 计算间隔和截断
+    # voxelGrid['interval'] = (voxelGrid['range'][1] - voxelGrid['range'][0]) / (voxelGrid['size'][0] - 1)
+    # voxelGrid['truncation'] = 1.2 * voxelGrid['interval']
+    # voxelGrid['disp_range'] = [-np.inf, voxelGrid['truncation']]
+    # voxelGrid['visualizeArclength'] = 0.01 * np.sqrt(voxelGrid['range'][1] - voxelGrid['range'][0])
+
+    # # 截断SDF
+    # sdf = np.clip(sdf, -voxelGrid['truncation'], voxelGrid['truncation'])
+    sdf_voxel_time = time.time()
+    
+    # Then use with MPS:
+    x = mps(sdf, voxelGrid)
+    print(f"number of superquadrics: {len(x)}")
+
+    mps_time = time.time()
 
     vis = o3d.visualization.Visualizer()
     vis.create_window(window_name="Target Object Point Cloud")
 
-    vis.add_geometry(pointcloud.getPCD())
-    #vis.add_geometry(superquadric.getSuperquadricAsPCD())
-    # vis.add_geometry(superquadric.getAlignedPCD())
+    total_mesh = o3d.geometry.TriangleMesh()
+    for quadric in x:
+        # Build superquadric object
+        sq = superquadric(
+            quadric[0:2],    # shape
+            quadric[2:5],    # scale
+            quadric[5:8],    # euler
+            quadric[8:11]    # translation
+        )
 
+        # Get sq mesh
+        mesh = sq.showSuperquadrics()
+        
+        # Combine meshes
+        total_mesh += mesh
+
+    sq_time = time.time()
+    
+    vis.add_geometry(pcd.getPCD())
+    vis.add_geometry(total_mesh)
+
+
+    # Style
+    # vis.add_geometry(pcd.getPCD())
     opt = vis.get_render_option()
     opt.line_width = 20
 
+    print(f"\n\n\n\n\
+        start time: {init_time} \n\
+        pcd_time: {pcd_time - init_time} \n\
+        sdf_voxel_time: {sdf_voxel_time - pcd_time} \n\
+        mps_time: {mps_time - sdf_voxel_time} \n\
+        sq_time: {sq_time - mps_time} \n\
+        total time: {sq_time - init_time} \n\
+        \n\n\n\n\n")
+
+    # Run
     vis.run()
     vis.destroy_window()
 
 """ Test 2: graps """
 def test2(model):
-    
-    #load data models
-    if model == "1":
-        rgb_path = "../data/rgb_and_depth_data/000001/rgb/000000.png"
-        depth_path = "../data/rgb_and_depth_data/000001/depth/000000.png"
-        mask_path = "../data/rgb_and_depth_data/000001/mask_visib/000000_000000.png"
-        scene_info_json = ["../data/rgb_and_depth_data/000001/scene_camera.json","0"]
-        class_name="bottle"
-        object_ID = 1
 
-    elif model == "2":
-        rgb_path = "../data/rgb_and_depth_data/000001/rgb/000001.png"
-        depth_path = "../data/rgb_and_depth_data/000001/depth/000001.png"
-        mask_path = "../data/rgb_and_depth_data/000001/mask_visib/000000_000001.png"
-        scene_info_json = ["../data/rgb_and_depth_data/000001/scene_camera.json","1"]
-        class_name="can"
-        object_ID = 2
-
-    elif model == "3":
-        rgb_path = "../data/rgb_and_depth_data/000008/rgb/000000.png"
-        depth_path = "../data/rgb_and_depth_data/000008/depth/000000.png"
-        mask_path = "../data/rgb_and_depth_data/000008/mask_visib/000001_000001.png"
-        scene_info_json = ["../data/rgb_and_depth_data/000008/scene_camera.json","0"]
-        class_name="can"
-        object_ID = 3
-
-    elif model == "4":
-        rgb_path = "../data/rgb_and_depth_data/000005/rgb/000000.png"
-        depth_path = "../data/rgb_and_depth_data/000005/depth/000000.png"
-        mask_path = "../data/rgb_and_depth_data/000005/mask_visib/000001_000001.png"
-        scene_info_json = ["../data/rgb_and_depth_data/000005/scene_camera.json","0"]
-        class_name="box"
-        object_ID = 3
-
-    elif model == "5":
-        rgb_path = "../data/rgb_and_depth_data/000005/rgb/000004.png"
-        depth_path = "../data/rgb_and_depth_data/000005/depth/000004.png"
-        mask_path = "../data/rgb_and_depth_data/000005/mask_visib/000004_000010.png"
-        scene_info_json = ["../data/rgb_and_depth_data/000005/scene_camera.json","4"]
-        object_ID = 3
     # CPU profiling start
     process = psutil.Process(os.getpid())
     process.cpu_percent(interval=None)  # prime
@@ -128,12 +222,12 @@ def test2(model):
 
     # Core operation
     superquadric = Superquadric(
-        object_ID=object_ID,
-        class_name=class_name,
-        raw_rgb=[rgb_path],
-        raw_depth=[depth_path],
-        mask=[mask_path],
-        camera_info=scene_info_json
+        object_ID=models[model]["object_ID"],
+        class_name=models[model]["class_name"],
+        raw_rgb=models[model]["rgb_path"],
+        raw_depth=models[model]["depth_path"],
+        mask=models[model]["mask_path"],
+        camera_info=models[model]["scene_info_json"]
     )
 
     end_wall = time.perf_counter()
@@ -264,4 +358,3 @@ if __name__ == "__main__":
             test_functions[test_number](model)
         else:
             print(f"No test function defined for test{test_number}")
-    
