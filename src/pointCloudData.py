@@ -173,7 +173,7 @@ class PointCloudData:
         colors = plt.cm.get_cmap("tab10", 10)
         count = 0
         while len(remaining.points) > remaing_points_threshold:
-            _, inliers = remaining.segment_plane(distance_threshold=0.05,
+            _, inliers = remaining.segment_plane(distance_threshold=0.03,
                                                     ransac_n=3,
                                                     num_iterations=1000,
                                                     probability=0.999)
