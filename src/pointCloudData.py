@@ -15,20 +15,25 @@ class PointCloudData:
         assert os.path.exists(raw_depth), f"Depth image not found: {raw_depth}"
         assert os.path.exists(mask), f"Mask image not found: {mask}"
 
+        for path, name in [(raw_rgb, "RGB"), (raw_depth, "Depth"), (mask, "Mask")]:
+            assert os.path.exists(path), f"{name} image not found: {path}"
+
+        # Load images
         self.object_ID = object_ID
         self.raw_rgb = cv2.cvtColor(cv2.imread(raw_rgb), cv2.COLOR_BGR2RGB)
-        self.raw_depth = cv2.imread(raw_depth, cv2.IMREAD_UNCHANGED)
+        self.raw_depth = cv2.imread(raw_depth, cv2.IMREAD_UNCHANGED).astype(np.float32) / 1000.0
         self.mask = cv2.imread(mask, cv2.IMREAD_GRAYSCALE)
+
+
         self.masked_depth = None
         self.camera_info = self.extractCameraInfo(camera_info)
 
         #convert superquadric parameters to pcd
         self.pcd = self.covertToPCD()
-        self.cloud_segments = self.defineSegments(self.pcd)
 
-        self.centroid = self.findCentroid()
-        self.boundingBox = self.findBoundingBox()
-        self.axis = self.findAxis()
+        # self.centroid = self.findCentroid()
+        # self.boundingBox = self.findBoundingBox()
+        # self.axis = self.findAxis()
 
     def extractCameraInfo(self, camera_info):
 
@@ -47,50 +52,50 @@ class PointCloudData:
             h, w = self.raw_rgb.shape[:2]
         return [K, fx, fy, cx, cy, w, h]
 
-    #mirror the partial point cloud around center axis for more refined model
-    def mirror_cloud(self, pcd, keep_original=True):
+    # #mirror the partial point cloud around center axis for more refined model
+    # def mirror_cloud(self, pcd, keep_original=True):
         
-        try:
-            if pcd.is_empty():
-                raise ValueError("Input point cloud is empty")
+    #     try:
+    #         if pcd.is_empty():
+    #             raise ValueError("Input point cloud is empty")
 
-            # ── 1. Compute centroid and translate to local frame ───────────────
-            pts = np.asarray(pcd.points)
-            bbox = pcd.get_oriented_bounding_box(True)
-            center = bbox.center
+    #         # ── 1. Compute centroid and translate to local frame ───────────────
+    #         pts = np.asarray(pcd.points)
+    #         bbox = pcd.get_oriented_bounding_box(True)
+    #         center = bbox.center
 
-            pts_local = pts - center  # move centroid to origin
+    #         pts_local = pts - center  # move centroid to origin
 
-            # ── 2. Reflect across the origin (x,y,z → -x,-y,-z) ────────────────
-            pts_mirror = -pts_local
+    #         # ── 2. Reflect across the origin (x,y,z → -x,-y,-z) ────────────────
+    #         pts_mirror = -pts_local
 
-            # ── 3. Bring mirrored points back to sensor/world frame ────────────
-            pts_mirror_world = pts_mirror + center
+    #         # ── 3. Bring mirrored points back to sensor/world frame ────────────
+    #         pts_mirror_world = pts_mirror + center
 
-            # ── 4. Build mirrored cloud, copying colours + normals if present ──
-            mirrored = o3d.geometry.PointCloud()
-            mirrored.points = o3d.utility.Vector3dVector(pts_mirror_world)
+    #         # ── 4. Build mirrored cloud, copying colours + normals if present ──
+    #         mirrored = o3d.geometry.PointCloud()
+    #         mirrored.points = o3d.utility.Vector3dVector(pts_mirror_world)
 
-            # copy RGB colours if they exist
-            if pcd.has_colors():
-                colours = np.asarray(pcd.colors)
-                mirrored.colors = o3d.utility.Vector3dVector(colours)
+    #         # copy RGB colours if they exist
+    #         if pcd.has_colors():
+    #             colours = np.asarray(pcd.colors)
+    #             mirrored.colors = o3d.utility.Vector3dVector(colours)
 
-            # copy (and flip) normals if they exist
-            if pcd.has_normals():
-                normals = np.asarray(pcd.normals)
-                mirrored.normals = o3d.utility.Vector3dVector(-normals)
+    #         # copy (and flip) normals if they exist
+    #         if pcd.has_normals():
+    #             normals = np.asarray(pcd.normals)
+    #             mirrored.normals = o3d.utility.Vector3dVector(-normals)
 
-            # ── 5. Combine or return only mirrored part ────────────────────────
-            if keep_original:
-                combined = o3d.geometry.PointCloud()
-                combined += pcd
-                combined += mirrored
-                return combined
-            else:
-                return mirrored
-        except Exception as e:
-            print(f"Mirror Error: {e}")
+    #         # ── 5. Combine or return only mirrored part ────────────────────────
+    #         if keep_original:
+    #             combined = o3d.geometry.PointCloud()
+    #             combined += pcd
+    #             combined += mirrored
+    #             return combined
+    #         else:
+    #             return mirrored
+    #     except Exception as e:
+    #         print(f"Mirror Error: {e}")
 
     #remove outliers from, may not need if mask is good
     def removeOutliers(self, pcd):
@@ -116,20 +121,20 @@ class PointCloudData:
 
         try:
             #Handle Mask
-              
+
+            # Camera intrinsics
+            fx = self.camera_info[1]
+            fy = self.camera_info[2]
+            cx = self.camera_info[3]
+            cy = self.camera_info[4]
+            w = self.camera_info[5]
+            h = self.camera_info[6]
             # Convert to boolean mask
             # Create empty mask with same dimensions as RGB image
-            mask = np.zeros((self.camera_info[6], self.camera_info[5]), dtype=np.uint8)
-            
-            # Convert tuple to array of points and reshape
-            points = np.array(self.mask).reshape(-1, 2)
-            
-            # Fill polygon using cv2 or create mask from contour
-            mask = cv2.fillPoly(mask, [points.astype(np.int32)], 255)
-            mask = mask.astype(bool)  # Convert 0/255 to False/True
-            
-            rgb_masked = np.where(mask[:, :, None], self.raw_rgb, 0).astype(np.uint8)
-            depth_masked = np.where(mask, self.raw_depth, 0)
+            mask_bool = self.mask > 0  # True where mask is white
+
+            rgb_masked = np.where(mask_bool[:, :, None], self.raw_rgb, 0).astype(np.uint8)
+            depth_masked = np.where(mask_bool, self.raw_depth, 0)
             
             # Ensure depth is in uint16 (mm)
             if depth_masked.dtype != np.uint16:
@@ -147,13 +152,6 @@ class PointCloudData:
                 convert_rgb_to_intensity=False
             )
 
-            # Camera intrinsics
-            fx = self.camera_info[1]
-            fy = self.camera_info[2]
-            cx = self.camera_info[3]
-            cy = self.camera_info[4]
-            w = self.camera_info[5]
-            h = self.camera_info[6]
             intrinsic = o3d.camera.PinholeCameraIntrinsic(width=w, height=h, fx=fx, fy=fy, cx=cx, cy=cy)
             
             # Generate Point Cloud
@@ -169,21 +167,21 @@ class PointCloudData:
 
     def defineSegments(self, pcd):
             
-        third_origional = len(pcd.points) // 3
+        remaing_points_threshold = len(pcd.points) // 10
         cloud_segments = []
         remaining = copy.deepcopy(pcd)
         colors = plt.cm.get_cmap("tab10", 10)
         count = 0
-        while len(remaining.points) > third_origional:
-            plane_model, inliers = remaining.segment_plane(distance_threshold=0.005,
+        while len(remaining.points) > remaing_points_threshold:
+            _, inliers = remaining.segment_plane(distance_threshold=0.05,
                                                     ransac_n=3,
                                                     num_iterations=1000,
                                                     probability=0.999)
-            [a, b, c, d] = plane_model.tolist()
+            # [a, b, c, d] = plane_model.tolist()
             # print(f"Plane equation: {a:.2f}x + {b:.2f}y + {c:.2f}z + {d:.2f} = 0")
 
             inlier_cloud = remaining.select_by_index(inliers)
-            inlier_cloud = self.removeOutliers(inlier_cloud)
+            #inlier_cloud = self.removeOutliers(inlier_cloud)
             inlier_cloud.paint_uniform_color(colors(count)[:3])
 
             cloud_segments.append(inlier_cloud)
@@ -191,29 +189,29 @@ class PointCloudData:
 
         return cloud_segments
 
-    def findBoundingBox(self):
-        return self.pcd.get_oriented_bounding_box(True)
+    # def findBoundingBox(self):
+    #     return self.pcd.get_oriented_bounding_box(True)
 
-    def findCentroid(self):
-        return self.pcd.get_center()
+    # def findCentroid(self):
+    #     return self.pcd.get_center()
 
-    def findAxis(self):
-        return self.boundingBox.R
+    # def findAxis(self):
+    #     return self.boundingBox.R
 
     def getPCD(self):
         return self.pcd
 
-    def getCentroid(self):
-        return self.centroid
+    # def getCentroid(self):
+    #     return self.centroid
 
-    def getBoundingBox(self):
-        return self.boundingBox
+    # def getBoundingBox(self):
+    #     return self.boundingBox
 
-    def getAxis(self):
-        return self.axis
+    # def getAxis(self):
+    #     return self.axis
     
     def getCloudSegments(self):
-        return self.cloud_segments
+        return self.defineSegments(self.pcd)
     
     def getRawData(self):
         return {

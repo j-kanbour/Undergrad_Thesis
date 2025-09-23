@@ -65,143 +65,48 @@ def test1(model):
         mask=models[model]["mask_path"],
         camera_info=models[model]["scene_info_json"]
         )
+    
+    pcd_time = time.time() 
 
     cloudSegments = pcd.getCloudSegments() #uses open3d plane segmentation 
-    # print(save_pointcloud_to_ply(pcd.getPCD(), "model_1.ply"))
-    # return
-    pcd_time = time.time()
 
+    print(f"number of segments: {len(cloudSegments)}")
     # vis = o3d.visualization.Visualizer()
     # vis.create_window(window_name="Target Object Point Cloud")
-    # vis.add_geometry(pcd.getPCD())
+    # all_cloudSegments = o3d.geometry.PointCloud()
+    # for i in cloudSegments:
+    #     all_cloudSegments += i
 
-    # # #add voxel visual mere
-    # # vis.add_geometry(voxelGrid)
+    # vis.add_geometry(all_cloudSegments)    
+    # vis.run()
+    # vis.destroy_window()
+    # return
 
-    # # # Style
-    # # opt = vis.get_render_option()
-    # # opt.line_width = 20
-
-    # # vis.run()
-    # # vis.destroy_window()
-    # # return
-    
-    # sdf, voxel_grid = utils.generate_sdf_for_mps(
-    #     pcd.getPCD(), 
-    #     method='distance_based',  # or 'voxel_grid' 
-    #     voxel_size=0.01,
-    #     truncation_distance=0.01
-    # )
-
-    # if sdf.any() and voxel_grid is not None: 
-    #     print("SDF and voxel grid generated successfully.")
-
-    #     # ============ VOXEL GRID VISUALIZATION OPTIONS ============
-        
-    #     # Option 1: Show all voxel centers as a point cloud
-    #     voxel_centers_pcd = o3d.geometry.PointCloud()
-    #     voxel_centers_pcd.points = o3d.utility.Vector3dVector(voxel_grid['points'].T)
-    #     voxel_centers_pcd.paint_uniform_color([0.5, 0.5, 0.5])  # Gray color
-        
-    #     # Option 2: Show only inside voxels (negative SDF)
-    #     inside_mask = sdf < 0
-    #     inside_points = voxel_grid['points'][:, inside_mask]
-    #     inside_pcd = o3d.geometry.PointCloud()
-    #     inside_pcd.points = o3d.utility.Vector3dVector(inside_points.T)
-    #     inside_pcd.paint_uniform_color([1.0, 0.0, 0.0])  # Red for inside
-        
-    #     # Option 3: Show only surface voxels (near zero SDF)
-    #     surface_mask = np.abs(sdf) < voxel_grid['truncation'] * 0.5
-    #     surface_points = voxel_grid['points'][:, surface_mask]
-    #     surface_pcd = o3d.geometry.PointCloud()
-    #     surface_pcd.points = o3d.utility.Vector3dVector(surface_points.T)
-    #     surface_pcd.paint_uniform_color([0.0, 1.0, 0.0])  # Green for surface
-        
-    #     # Visualize together
-    #     vis = o3d.visualization.Visualizer()
-    #     vis.create_window(window_name="Voxel Grid Visualization")
-    #     vis.add_geometry(pcd.getPCD())
-    #     vis.add_geometry(voxel_centers_pcd)  # Uncomment to see all voxels
-    #     vis.add_geometry(inside_pcd)         # Show inside voxels
-    #     vis.add_geometry(surface_pcd)        # Show surface voxels
-        
-    #     vis.run()
-    #     vis.destroy_window()
-
-    # file_path = r"obj_000021_normalized.csv"
-    # if not file_path:
-    #     raise ValueError("No file selected.")
-
-    # # 读取CSV文件
-    # sdf = np.genfromtxt(file_path, delimiter=',').T
-    # voxelGrid = {}
-
-    # # 设置体素网格参数
-    # voxelGrid['size'] = np.ones(3, dtype=int) * int(sdf[0])
-    # voxelGrid['range'] = sdf[1:7]
-    # sdf = sdf[7:]
-    # # 创建线性空间
-    # voxelGrid['x'] = np.linspace(voxelGrid['range'][0], voxelGrid['range'][1], int(voxelGrid['size'][0]))
-    # voxelGrid['y'] = np.linspace(voxelGrid['range'][2], voxelGrid['range'][3], int(voxelGrid['size'][1]))
-    # voxelGrid['z'] = np.linspace(voxelGrid['range'][4], voxelGrid['range'][5], int(voxelGrid['size'][2]))
-
-    # # 创建网格
-    # x, y, z = np.meshgrid(voxelGrid['x'], voxelGrid['y'], voxelGrid['z'], indexing='ij')
-    # points = np.stack((x,y,z),axis=3)
-    # voxelGrid['points'] = points.reshape((-1,3),order='F').T 
-
-    # # 计算间隔和截断
-    # voxelGrid['interval'] = (voxelGrid['range'][1] - voxelGrid['range'][0]) / (voxelGrid['size'][0] - 1)
-    # voxelGrid['truncation'] = 1.2 * voxelGrid['interval']
-    # voxelGrid['disp_range'] = [-np.inf, voxelGrid['truncation']]
-    # voxelGrid['visualizeArclength'] = 0.01 * np.sqrt(voxelGrid['range'][1] - voxelGrid['range'][0])
-
-    # # 截断SDF
-    # sdf = np.clip(sdf, -voxelGrid['truncation'], voxelGrid['truncation'])
-    sdf_voxel_time = time.time()
-    
-    # Then use with MPS:
-    x = mps(sdf, voxelGrid)
-    print(f"number of superquadrics: {len(x)}")
-
-    mps_time = time.time()
+    cloudSegment_time = time.time()
 
     vis = o3d.visualization.Visualizer()
     vis.create_window(window_name="Target Object Point Cloud")
 
-    total_mesh = o3d.geometry.TriangleMesh()
-    for quadric in x:
+    total_mesh = o3d.geometry.PointCloud()
+    for segment in cloudSegments:
         # Build superquadric object
-        sq = superquadric(
-            quadric[0:2],    # shape
-            quadric[2:5],    # scale
-            quadric[5:8],    # euler
-            quadric[8:11]    # translation
-        )
+        sq = Superquadric(segment)
 
         # Get sq mesh
-        mesh = sq.showSuperquadrics()
-        
-        # Combine meshes
-        total_mesh += mesh
+        total_mesh += sq.getSuperquadricMesh()
 
     sq_time = time.time()
     
     vis.add_geometry(pcd.getPCD())
     vis.add_geometry(total_mesh)
-
-
-    # Style
-    # vis.add_geometry(pcd.getPCD())
     opt = vis.get_render_option()
     opt.line_width = 20
 
     print(f"\n\n\n\n\
         start time: {init_time} \n\
         pcd_time: {pcd_time - init_time} \n\
-        sdf_voxel_time: {sdf_voxel_time - pcd_time} \n\
-        mps_time: {mps_time - sdf_voxel_time} \n\
-        sq_time: {sq_time - mps_time} \n\
+        segmentation_time: {cloudSegment_time - pcd_time} \n\
+        sq_time: {sq_time - cloudSegment_time} \n\
         total time: {sq_time - init_time} \n\
         \n\n\n\n\n")
 
