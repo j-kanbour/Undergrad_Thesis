@@ -1,10 +1,10 @@
 #!/usr/bin/env python3.8
-import numpy as np
-import cv2
-import open3d as o3d
-import json
 import os
+import cv2
+import json
 import copy
+import numpy as np
+import open3d as o3d
 import matplotlib.pyplot as plt
 
 class PointCloudData:

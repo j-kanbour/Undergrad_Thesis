@@ -19,50 +19,55 @@
 
 """
 
-import numpy as np 
-
-from geometry_msgs.msg import PoseStamped
-import rospy
-from tf.transformations import quaternion_from_matrix
-import sys
 import os
+import sys
+import rospy
+import numpy as np 
+from geometry_msgs.msg import PoseStamped
+from tf.transformations import quaternion_from_matrix
+
 module_path = os.environ.get("UNSW_WS")
 sys.path.append(module_path + "/PLANNING/action_server/src/grasp_code")
+
 import grasp_checks
 class Grasps:
-    def __init__(self, sq, orientation=None):
+    def __init__(self, sq, orientation=None, gripper_w = 0.5, gripper_d = 0.5):
+        #blinky: depth=0.0666, width=0.236
 
         self.print = lambda *args, **kwargs: print("Grasps:", *args, **kwargs)
-        self.orientation = orientation
 
         #extract necessary information from superquadric object
-        self.superquadric = sq.getSuperquadricAsPCD()
+        #sq = sq.getSuperquadricAsPCD()
         
-        self.depth_masked = sq.getRawData()["masked_depth"]
+        # self.depth_masked = sq.getRawData()["masked_depth"]
         
-        #extracts camera info
-        self.camera_info = sq.getRawData()["camera_info"]
-        self.K = np.array(self.camera_info.K).reshape(3, 3)
-        self.fx = self.K[0, 0]
-        self.fy = self.K[1, 1]
-        self.cx = self.K[0, 2]
-        self.cy = self.K[1, 2]
-        self.w = self.camera_info.width
-        self.h = self.camera_info.height
+        # #extracts camera info
+        # self.camera_info = sq.getRawData()["camera_info"]
+        # self.K = np.array(self.camera_info.K).reshape(3, 3)
+        # self.fx = self.K[0, 0]
+        # self.fy = self.K[1, 1]
+        # self.cx = self.K[0, 2]
+        # self.cy = self.K[1, 2]
+        # self.w = self.camera_info.width
+        # self.h = self.camera_info.height
         
-        self.depth_scale = 0.001 #??
+        # self.depth_scale = 0.001 #??
 
-        self.object_pcd = sq.getPCD().getPCD()
+        # self.object_pcd = sq.getPCD().getPCD()
 
         #generate and select best grasp
-        self.allGrasps = self.generateGrasps() #{grasp: score}
-        self.selectedGrasps = self.selectGrasps()
+        self.orientation = orientation
+        self.allGrasps = self.generateGrasps(sq, orientation, gripper_d, gripper_w) #{grasp: score}
+        self.selectedGrasps = self.selectGrasps(sq, orientation)
 
     #generate num_grasps possible grasps
-    def generateGrasps(self, num_grasps=50, dist=1.0):
+    def generateGrasps(self, sq, num_grasps=50, dist=1.0):
+
+        #use the grasp orientation to to limit the superquadrics being searched for grasps
+
         try:
-            points = np.asarray(self.superquadric.points)
-            normals = np.asarray(self.superquadric.normals)
+            points = np.asarray(sq.points)
+            normals = np.asarray(sq.normals)
             length_points = len(points)
             candidate_grasps = {}  # {geometry.pose: score}
 
@@ -75,6 +80,7 @@ class Grasps:
 
                 # Full grasp info
                 grasp_pose = {
+                    "score": 0,
                     "index_i": i,
                     "index_j": second_index,
                     "point_i": point1.copy(),
@@ -83,16 +89,26 @@ class Grasps:
                     "point_j_normals": normal2.copy(),
                 }
 
+                #discotinue checks if 1 fails
                 # Run checks and score
-                grip_score = grasp_checks.checkGripper(grasp_pose, self.superquadric)
-                antipodal_score = grasp_checks.checkAntipodal(grasp_pose, normal_threshold=10)
-                collision_score = grasp_checks.checkCollision(grasp_pose, self.depth_masked, self.camera_info, collision_threshold=0.05)
-                total_score = grip_score + antipodal_score + collision_score
-                if grip_score > 50 and antipodal_score > 50 and collision_score > 50:
-                    candidate_grasps[total_score] = grasp_pose
+                gripper_score = grasp_checks.checkGripper(grasp_pose, sq)
+                if gripper_score < 100: break
+                
+                antipodal_score = grasp_checks.checkAntipodal(grasp_pose, normal_threshold=10) 
+                if antipodal_score < 70: break
+                #collision_score = grasp_checks.checkCollision(grasp_pose, self.depth_masked, self.camera_info, collision_threshold=0.05)
+                # total_score = grip_score + antipodal_score #+ collision_score
+                # if grip_score > 50 and antipodal_score > 50: # and collision_score > 50:
 
-                if len(candidate_grasps) >= num_grasps:
-                    break
+                #TODO: bind better method than scoreing: affordances
+                #this will overwrite ang grasps of the same score
+                total_score = gripper_score + antipodal_score
+                grasp_pose["score"] = total_score
+
+                candidate_grasps.insert() = grasp_pose
+
+                if len(candidate_grasps) >= num_grasps: break
+
             print(f'number of candidate grasps: {len(candidate_grasps)}')
             return candidate_grasps
 
@@ -118,6 +134,8 @@ class Grasps:
         point2 = midpoint + half_length * grasp_line
 
         # Choose pose vector (approach direction)
+        # need to re-consider grasp instructions top/front/blank(most optimal)
+
         if self.orientation in ['top', 'top2']:
             pose_vector = np.array([0.0, 0.0, 1.0], dtype=np.float64)
         elif self.orientation in ['front', 'front-vertical']:
