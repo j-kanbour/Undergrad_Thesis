@@ -1,7 +1,7 @@
 
 from pointCloudData import PointCloudData
 from superquadric import Superquadric
-from pointCloudData import PointCloudData
+from grasps import Grasps
 import open3d as o3d
 import sys, os, time
 import psutil
@@ -88,17 +88,27 @@ def test1(model):
     vis.create_window(window_name="Target Object Point Cloud")
 
     total_mesh = o3d.geometry.PointCloud()
+    sq_list = []
+
     for segment in cloudSegments:
         # Build superquadric object
-        sq = Superquadric(segment)
-
-        # Get sq mesh
-        total_mesh += sq.getSuperquadricMesh()
+        sq = Superquadric(segment).getSuperquadricMesh()
+        sq_list.append(sq)
+        total_mesh += sq
 
     sq_time = time.time()
+
+    #grasp selection
+
+    grasp = Grasps(sq_list, 'harb_rgb_camera_frame', orientation=None, gripper_depth=0.0666, gripper_width=0.236)
+    
+    #generate grasp posestamp
+
+    grasp_time = time.time()
     
     vis.add_geometry(pcd.getPCD())
-    vis.add_geometry(total_mesh)
+    #vis.add_geometry(total_mesh)
+    #vis.add_geometry(largest_sq_primary_points)
     opt = vis.get_render_option()
     opt.line_width = 20
 
@@ -107,7 +117,8 @@ def test1(model):
         pcd_time: {pcd_time - init_time} \n\
         segmentation_time: {cloudSegment_time - pcd_time} \n\
         sq_time: {sq_time - cloudSegment_time} \n\
-        total time: {sq_time - init_time} \n\
+        grasp_time: {grasp_time - sq_time} \n\
+        total time: {grasp_time - init_time} \n\
         \n\n\n\n\n")
 
     # Run

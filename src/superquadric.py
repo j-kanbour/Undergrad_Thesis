@@ -10,41 +10,16 @@ class Superquadric:
         #object_ID, class_name, raw_rgb, raw_depth=None, mask=None, camera_info=None
         self.print = lambda *args, **kwargs: print("Superquadric:", *args, **kwargs)
 
-        #self.object_ID = object_ID
-        #self.class_name = class_name.lower()
-
-        #built point cloud from raw data
-        #self.pcd = PointCloudData(object_ID, raw_rgb, raw_depth, mask, camera_info)
-
         #estimate values of e
         init_time = time.time()
         self.e1, self.e2 = self.estimateE(pcd)
         print(f"        e time: {time.time() - init_time:.3f}s")
 
-        self.superquadric = self.createSuperquadric(pcd, self.e1, self.e2,)
+        self.superquadric = self.createSuperquadric(pcd, self.e1, self.e2)
         print(f"        SQ time: {time.time() - init_time:.3f}s")
 
-        #using ICP aligned the superquadric estimate to the target object
-        # self.aligned_PCD = self.alignWithICP()
-
     def estimateE(self, pcd):
-        # """
-        #     e1 and e2 bounds for different primitives
 
-        #     Cylinder: 0.1, 1
-        #     Cuboid: 0.1, 2
-        #     Sphere: 1, 1
-        #     ...
-        # """
-        # if re.search(r"(can|cup|bottle)", class_name):
-        #     return 0.1, 1
-        # elif re.search(r"box", class_name):
-        #     return 0.1, 2
-        # elif re.search(r"ball", class_name):
-        #     return 1, 1
-        # elif re.search(r"(bowl|plate)", class_name):
-        #     return 0, 0
-        # else:
         points = np.asarray(pcd.points)
 
         if points.shape[0] < 10:
@@ -119,6 +94,7 @@ class Superquadric:
         superquadricMesh.estimate_normals()
 
         return superquadricMesh
+
 
     def getSuperquadricMesh(self):
         return self.superquadric

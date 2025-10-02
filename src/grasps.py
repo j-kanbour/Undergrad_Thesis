@@ -23,15 +23,17 @@ import os
 import sys
 import rospy
 import numpy as np 
+import open3d as o3d
+import random
 from geometry_msgs.msg import PoseStamped
-from tf.transformations import quaternion_from_matrix
+from scipy.spatial.transform import Rotation as R
 
 module_path = os.environ.get("UNSW_WS")
 sys.path.append(module_path + "/PLANNING/action_server/src/grasp_code")
 
 import grasp_checks
 class Grasps:
-    def __init__(self, sq, orientation=None, gripper_w = 0.5, gripper_d = 0.5):
+    def __init__(self, sq, frame_id, orientation=None, gripper_width = 0.5, gripper_depth = 0.5):
         #blinky: depth=0.0666, width=0.236
 
         self.print = lambda *args, **kwargs: print("Grasps:", *args, **kwargs)
@@ -56,168 +58,136 @@ class Grasps:
         # self.object_pcd = sq.getPCD().getPCD()
 
         #generate and select best grasp
-        self.orientation = orientation
-        self.allGrasps = self.generateGrasps(sq, orientation, gripper_d, gripper_w) #{grasp: score}
-        self.selectedGrasps = self.selectGrasps(sq, orientation)
+        self.primaryPoints, self.sq_pose = self.graspPointFiltering(sq, orientation, gripper_depth, gripper_width)
+        self.selectedGrasps = self.generatPose(self.primaryPoints, frame_id, self.sq_pose)
 
-    #generate num_grasps possible grasps
-    def generateGrasps(self, sq, num_grasps=50, dist=1.0):
+    def extractPointsAlongAxis(self, sq, orientation, angle_tol_deg= 5.0, extent_threshold=0.236):
+        """
+        From a point cloud sq with normals, return points whose normals are parallel to
+        the object x, y, or z axes defined by its oriented bounding box (either + or −).
+        The result will exclude points on faces where both extents (other than the relevant axis) are larger than a threshold value (0.236).
+        The result will be returned as an open3d.geometry.PointCloud.
+        """
 
-        #use the grasp orientation to to limit the superquadrics being searched for grasps
+        # Pull arrays
+        P = np.asarray(sq.points)            # (N, 3)
+        N = np.asarray(sq.normals)           # (N, 3)
 
-        try:
-            points = np.asarray(sq.points)
-            normals = np.asarray(sq.normals)
-            length_points = len(points)
-            candidate_grasps = {}  # {geometry.pose: score}
+        if P.size == 0:
+            return o3d.geometry.PointCloud()  # Return an empty PointCloud if no points
 
-            for i in range(1, len(points), 50):
-                point1 = points[i]
-                normal1 = normals[i]
-                second_index = length_points - i
-                point2 = points[second_index]
-                normal2 = normals[second_index]
+        # Ensure normals are unit length (guard against non-normalised inputs)
+        n_norm = np.linalg.norm(N, axis=1, keepdims=True)
+        n_norm[n_norm == 0] = 1.0
+        N = N / n_norm
 
-                # Full grasp info
-                grasp_pose = {
-                    "score": 0,
-                    "index_i": i,
-                    "index_j": second_index,
-                    "point_i": point1.copy(),
-                    "point_j": point2.copy(),
-                    "point_i_normals": normal1.copy(),
-                    "point_j_normals": normal2.copy(),
-                }
+        # Object axes from OBB rotation
+        obb = sq.get_oriented_bounding_box()
+        R = obb.R  # 3x3
+        #ex, ey, ez = R[:, 0], R[:, 1], R[:, 2]  # world-space unit axes for object x, y, z
 
-                #discotinue checks if 1 fails
-                # Run checks and score
-                gripper_score = grasp_checks.checkGripper(grasp_pose, sq)
-                if gripper_score < 100: break
-                
-                antipodal_score = grasp_checks.checkAntipodal(grasp_pose, normal_threshold=10) 
-                if antipodal_score < 70: break
-                #collision_score = grasp_checks.checkCollision(grasp_pose, self.depth_masked, self.camera_info, collision_threshold=0.05)
-                # total_score = grip_score + antipodal_score #+ collision_score
-                # if grip_score > 50 and antipodal_score > 50: # and collision_score > 50:
+        # Get OBB extents (half lengths in each direction)
+        extents = np.array(2*obb.extent)  # [width, height, depth]
+        
+        # Angle test: |dot(n, axis)| >= cos(theta)
+        c = np.cos(np.deg2rad(angle_tol_deg))
+        dots = np.abs(N @ R)   # shape (N, 3): [|n·ex|, |n·ey|, |n·ez|]
 
-                #TODO: bind better method than scoreing: affordances
-                #this will overwrite ang grasps of the same score
-                total_score = gripper_score + antipodal_score
-                grasp_pose["score"] = total_score
+        # Any axis match
+        mask_any = (dots >= c).any(axis=1)
+        all_idx = np.where(mask_any)[0]
 
-                candidate_grasps.insert() = grasp_pose
+        # Filter the points based on OBB extents condition (exclude those points)
+        filtered_points = P[all_idx]
+        filtered_normals = N[all_idx]
 
-                if len(candidate_grasps) >= num_grasps: break
+        # Initialize list to hold valid points
+        valid_points = []
 
-            print(f'number of candidate grasps: {len(candidate_grasps)}')
-            return candidate_grasps
+        # Check each point to see if it lies on a face where the other extents are smaller than the threshold
+        for i, _ in enumerate(filtered_points):
+            normal = filtered_normals[i]
+            
+            # If the point's normal is close to the x, y, or z axis, check the corresponding extents
+            if orientation in ['front', None] and np.abs(normal[0]) > 0.5:  # X axis (normal aligned with X face)
+                if extents[1] <= extent_threshold or extents[2] <= extent_threshold:  # Y and Z extents must be below threshold
+                    valid_points.append(filtered_points[i])
 
-        except Exception as e:
-            print(f"[generateGrasps] Error: {e}")
-            return None
+            elif orientation in ['front', None] and np.abs(normal[1]) > 0.5:  # Y axis (normal aligned with Y face)
+                if extents[0] <= extent_threshold or extents[2] <= extent_threshold:  # X and Z extents must be below threshold
+                    valid_points.append(filtered_points[i])
 
-    def generatPose(self, grasp_pose):
-        # Extract and cast to float64 to prevent dtype errors
-        point1 = np.array(grasp_pose["point_i"], dtype=np.float64)
-        point2 = np.array(grasp_pose["point_j"], dtype=np.float64)
-        normal1 = np.array(grasp_pose["point_i_normals"], dtype=np.float64)
-        normal2 = np.array(grasp_pose["point_j_normals"], dtype=np.float64)
+            elif orientation in ['top', None] and normal[2] > 0.5:  # Z axis (normal aligned with Z face) positve only so it faces up
+                if extents[0] <= extent_threshold or extents[1] <= extent_threshold:  # X and Y extents must be below threshold
+                    valid_points.append(filtered_points[i])
 
-        # Define grasp line and midpoint
-        vec = point2 - point1
-        grasp_line = vec / np.linalg.norm(vec)
-        midpoint = (point1 + point2) / 2.0
+        print(f"Valid points count: {len(valid_points)}")
+        # Convert the valid points back into Open3D PointCloud object
+        valid_pcd = o3d.geometry.PointCloud()
+        valid_pcd.points = o3d.utility.Vector3dVector(np.array(valid_points))
 
-        # Rescale endpoints to fixed 20cm grasp (±0.1m)
-        half_length = 0.1
-        point1 = midpoint - half_length * grasp_line
-        point2 = midpoint + half_length * grasp_line
+        return valid_pcd, R
 
-        # Choose pose vector (approach direction)
-        # need to re-consider grasp instructions top/front/blank(most optimal)
+    def graspPointFiltering(self, sq_list, orientation=None, gripper_depth=0.0666, gripper_width=0.236):
+        #sort sq_list by sq size (i.e. number of points)
+        #perform extractPointsAlongAxis on it
+            #if points found generate grasps for each point and procede to selecction
+            #if not then move to next largest sq
+            #if none then select center of largest sq as grasp point
 
-        if self.orientation in ['top', 'top2']:
-            pose_vector = np.array([0.0, 0.0, 1.0], dtype=np.float64)
-        elif self.orientation in ['front', 'front-vertical']:
-            ground_normal = np.array([0.0, 0.0, 1.0])
-            pose_vector = np.cross(grasp_line, ground_normal)
-            if np.linalg.norm(pose_vector) < 0.1:
-                fallback_axis = np.array([1.0, 0.0, 0.0]) if abs(grasp_line[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
-                pose_vector = np.cross(grasp_line, fallback_axis)
-            pose_vector[2] = 0.0
-            pose_vector = pose_vector / np.linalg.norm(pose_vector)
-        else:
-            avg_normal = (normal1 + normal2) / 2.0
-            pose_vector = avg_normal / np.linalg.norm(avg_normal)
+        sq_list = sorted(sq_list, key=lambda x: len(x.points), reverse=True)
+        
+        for sq in sq_list:
+            primary_points = self.extractPointsAlongAxis(sq, orientation, angle_tol_deg=5.0, extent_threshold=gripper_width)
+            if len(primary_points.points) > 0:
+                self.print(f"Found {len(primary_points.points)} primary points on superquadric with {len(sq.points)} points.")
+                return random.choice(primary_points.points)
+            else:
+                self.print(f"No primary points found on superquadric with {len(sq.points)} points.")
+        
+        self.print("No primary points found on any superquadric. Defaulting to center of largest superquadric.")
+        return sq_list[0].get_center()
 
-        # Enforce perpendicularity (except top views)
-        if self.orientation not in ['top', 'top2']:
-            dot_product = np.dot(pose_vector, grasp_line)
-            if abs(dot_product) > 0.1:
-                pose_vector = pose_vector - dot_product * grasp_line
-                pose_vector = pose_vector / np.linalg.norm(pose_vector)
-
-        # Build orthonormal rotation matrix (z = approach, y = grasp)
-        z_axis = pose_vector
-        y_axis = grasp_line
-        x_axis = np.cross(y_axis, z_axis)
-        y_axis = np.cross(z_axis, x_axis)
-
-        x_axis = x_axis / np.linalg.norm(x_axis)
-        y_axis = y_axis / np.linalg.norm(y_axis)
-        z_axis = z_axis / np.linalg.norm(z_axis)
-
-        rot = np.eye(4)  # ← Change to 4x4 for quaternion_from_matrix
-        rot[:3, 0] = x_axis
-        rot[:3, 1] = y_axis
-        rot[:3, 2] = z_axis
-
-        quat = quaternion_from_matrix(rot)
-
-        # Final pose
-        x = float(midpoint[0])
-        y = float(midpoint[1])
-        z = np.clip(float(midpoint[2]), 0.02, 2.00)
-
+    def generatePose(self, grasp_point, frame_id, sq_pose):
+        """
+        Generate a PoseStamped by projecting a pose onto a point.
+        
+        Args:
+            grasp_point: Open3D point (numpy array [x, y, z])
+            sq_pose: Original object pose containing rotation (R matrix or quaternion)
+        
+        Returns:
+            PoseStamped with the point position and projected rotation
+        """
+        # Create PoseStamped message
         pose_stamped = PoseStamped()
-        pose_stamped.header.stamp = rospy.Time.now()
-        pose_stamped.header.frame_id = self.camera_info.header.frame_id
-        pose_stamped.pose.position.x = x
-        pose_stamped.pose.position.y = y
-        pose_stamped.pose.position.z = z
+        pose_stamped.header.frame_id = frame_id  # Change to your frame
+        pose_stamped.header.stamp = rospy.Time.now()  # or use your timestamp
+        
+        # Set position from grasp point
+        pose_stamped.pose.position.x = grasp_point[0]
+        pose_stamped.pose.position.y = grasp_point[1]
+        pose_stamped.pose.position.z = grasp_point[2]
+        
+        # Handle rotation from sq_pose
+        # Assuming sq_pose.R is a 3x3 rotation matrix
+        if hasattr(sq_pose, 'R'):
+            rotation_matrix = sq_pose.R
+        else:
+            # If sq_pose is already a rotation matrix
+            rotation_matrix = sq_pose
+        
+        # Convert rotation matrix to quaternion
+        scipy_rotation = R.from_matrix(rotation_matrix)
+        quat = scipy_rotation.as_quat()  # Returns [x, y, z, w]
+        
+        # Set orientation
         pose_stamped.pose.orientation.x = quat[0]
         pose_stamped.pose.orientation.y = quat[1]
         pose_stamped.pose.orientation.z = quat[2]
         pose_stamped.pose.orientation.w = quat[3]
-
+        
         return pose_stamped
-
-
-    def selectGrasps(self):
-        if not self.allGrasps:
-            rospy.logwarn("[selectGrasps] No grasps were generated.")
-            return None
-
-        try:
-            # Sort all grasp candidates by descending score
-            sorted_grasps = sorted(self.allGrasps.items(), key=lambda item: item[0], reverse=True)
-
-            for score, grasp_pose in sorted_grasps:
-                try:
-                    pose_stamped = self.generatPose(grasp_pose)
-                    if pose_stamped is not None:
-                        rospy.loginfo(f"[selectGrasps] Selected grasp with score: {score:.2f}")
-                        return pose_stamped
-                except Exception as e:
-                    rospy.logwarn(f"[selectGrasps] Skipped invalid grasp (score {score:.2f}): {e}")
-                    continue  # Try next best grasp
-
-            rospy.logwarn("[selectGrasps] No valid grasp poses after checking all candidates.")
-            return None
-
-        except Exception as e:
-            rospy.logerr(f"[selectGrasps] Fatal error during selection: {e}")
-            return None
 
     def getAllGrasps(self):
         return self.allGrasps
