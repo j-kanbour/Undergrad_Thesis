@@ -17,6 +17,8 @@ class Superquadric:
 
         self.superquadric = self.createSuperquadric(pcd, self.e1, self.e2)
         print(f"        SQ time: {time.time() - init_time:.3f}s")
+        print(f"        Num Points: {len(self.superquadric.points)}")
+
 
     def estimateE(self, pcd):
 
@@ -43,7 +45,7 @@ class Superquadric:
         self.print(f"Estimated e1: {e1:.3f}, e2: {e2:.3f}")
         return e1, e2
 
-    def createSuperquadric(self, pcd, e1, e2, res_u=128, res_v=256, n_points=1000):
+    def createSuperquadric(self, pcd, e1, e2, res_u=128, res_v=256, point_percent=10):
         eta = np.linspace(-np.pi/2, np.pi/2, res_u)
         omega = np.linspace(-np.pi, np.pi, res_v, endpoint=False)
         Eta, Omega = np.meshgrid(eta, omega, indexing="ij")
@@ -90,6 +92,7 @@ class Superquadric:
         mesh.remove_degenerate_triangles()
         mesh.compute_vertex_normals()
 
+        n_points = len(pcd.points) * (point_percent) // 100
         superquadricMesh = mesh.sample_points_poisson_disk(number_of_points=n_points, init_factor=5)
         superquadricMesh.estimate_normals()
 

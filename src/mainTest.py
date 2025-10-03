@@ -53,7 +53,7 @@ models = {
         }
 
 """ Test 1: modelling"""
-def test1(model):
+def test1(model, orientation=None):
 
     # Generate Point Cloud Model
     init_time = time.time()
@@ -100,7 +100,10 @@ def test1(model):
 
     #grasp selection
 
-    grasp = Grasps(sq_list, 'harb_rgb_camera_frame', orientation=None, gripper_depth=0.0666, gripper_width=0.236)
+    grasp = Grasps(sq_list, 'harb_rgb_camera_frame', orientation=orientation, gripper_depth=0.0666, gripper_width=0.236)
+
+    grasp_points = grasp.getGraspPoints()
+    grasp_pose = grasp.getSelectedGrasps()
     
     #generate grasp posestamp
 
@@ -108,7 +111,8 @@ def test1(model):
     
     vis.add_geometry(pcd.getPCD())
     #vis.add_geometry(total_mesh)
-    #vis.add_geometry(largest_sq_primary_points)
+    #vis.add_geometry(grasp_points)
+    vis.add_geometry(grasp_pose)
     opt = vis.get_render_option()
     opt.line_width = 20
 
@@ -125,152 +129,17 @@ def test1(model):
     vis.run()
     vis.destroy_window()
 
-""" Test 2: graps """
-def test2(model):
-
-    # CPU profiling start
-    process = psutil.Process(os.getpid())
-    process.cpu_percent(interval=None)  # prime
-
-    cpu_start = process.cpu_times()
-    num_threads_before = process.num_threads()
-    start_wall = time.perf_counter()
-
-    # Core operation
-    superquadric = Superquadric(
-        object_ID=models[model]["object_ID"],
-        class_name=models[model]["class_name"],
-        raw_rgb=models[model]["rgb_path"],
-        raw_depth=models[model]["depth_path"],
-        mask=models[model]["mask_path"],
-        camera_info=models[model]["scene_info_json"]
-    )
-
-    end_wall = time.perf_counter()
-    cpu_end = process.cpu_times()
-    num_threads_after = process.num_threads()
-
-    # Deltas
-    user_cpu = cpu_end.user - cpu_start.user
-    system_cpu = cpu_end.system - cpu_start.system
-    wall_time = end_wall - start_wall
-    total_cpu = user_cpu + system_cpu
-    cpu_percent = (total_cpu / wall_time) * 100 if wall_time > 0 else 0
-
-    print("\n===== CPU Usage for Superquadric Creation =====")
-    print(f"Wall time elapsed: {wall_time:.4f} seconds")
-    print(f"User CPU time:     {user_cpu:.4f} seconds")
-    print(f"System CPU time:   {system_cpu:.4f} seconds")
-    print(f"Total CPU usage:   {cpu_percent:.1f}% of one core")
-    print(f"Threads before:    {num_threads_before}, after: {num_threads_after}")
-    print("==============================================\n")
-
-    # Visualisation setup
-    pointcloud = superquadric.pcd
-
-    centroid_coords = pointcloud.getCentroid()
-    centroid = o3d.geometry.TriangleMesh.create_sphere(radius=0.005)
-    centroid.paint_uniform_color([1, 0, 0])
-    centroid.translate(centroid_coords)
-
-    bbox = o3d.geometry.LineSet.create_from_oriented_bounding_box(pointcloud.getBoundingBox())
-    bbox.paint_uniform_color([0, 1, 0])
-
-    # Align superquadric
-    aligned_superquadric_pcd = superquadric.getAlignedPCD()
-
-    # ===== GRASP GENERATION =====
-    grasps_generator = Grasps(superquadric)
-
-
-    grasps = grasps_generator.getSelectedGrasps()
-    print(grasps)
-
-    # Final visualisation
-    vis = o3d.visualization.Visualizer()
-    vis.create_window(window_name="Target Object Point Cloud + Grasps")
-
-    offset = np.array([0, 0, -0.05])  # 5 cm behind object along camera Z
-    frame_position = centroid_coords + offset
-    object_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.05)
-    object_frame.translate(frame_position)
-    vis.add_geometry(object_frame)
-
-    bbox = o3d.geometry.LineSet.create_from_oriented_bounding_box(pointcloud.getBoundingBox())
-    bbox.paint_uniform_color([0, 1, 0])
-
-    # Add object and aligned superquadric
-    vis.add_geometry(pointcloud.getPCD())
-    vis.add_geometry(aligned_superquadric_pcd)
-
-    # Add axis
-    vis.add_geometry(centroid)
-
-    # Add bounding box
-    vis.add_geometry(bbox)
-
-    # Prepare and add grasp point spheres + axes (draw together to match)
-    axis_scale = 0.1  # length of axis lines
-
-    if grasps == None: 
-        print("no possible grassps")
-    else:
-        for grasp in grasps:
-            # ===== Show normal at point_i =====
-            point_i = grasp["point_i"]
-            n_i = grasp["point_i_normals"]
-            normal_length = axis_scale * 0.5  # shorter for normals
-
-            n_i_end = point_i + n_i * normal_length
-            n_i_arrow = o3d.geometry.LineSet(
-                points=o3d.utility.Vector3dVector([point_i, n_i_end]),
-                lines=o3d.utility.Vector2iVector([[0, 1]])
-            )
-            n_i_arrow.paint_uniform_color([1, 0, 0])  # yellow normal
-            vis.add_geometry(n_i_arrow)
-
-            # ===== Show normal at point_j =====
-            point_j = grasp["point_j"]
-            n_j = grasp["point_j_normals"]
-
-            n_j_end = point_j + n_j * normal_length
-            n_j_arrow = o3d.geometry.LineSet(
-                points=o3d.utility.Vector3dVector([point_j, n_j_end]),
-                lines=o3d.utility.Vector2iVector([[0, 1]])
-            )
-            n_j_arrow.paint_uniform_color([1, 0, 1])  # yellow normal
-            vis.add_geometry(n_j_arrow)
-
-            # ===== Optionally, still show point_i and point_j =====
-            point_i_sphere = o3d.geometry.TriangleMesh.create_sphere(radius=0.001)
-            point_i_sphere.paint_uniform_color([1, 0, 1])  # magenta
-            point_i_sphere.translate(point_i)
-            vis.add_geometry(point_i_sphere)
-
-            point_j_sphere = o3d.geometry.TriangleMesh.create_sphere(radius=0.001)
-            point_j_sphere.paint_uniform_color([1, 0, 1])  # magenta
-            point_j_sphere.translate(point_j)
-            vis.add_geometry(point_j_sphere)
-
-
-    # Visual options
-    opt = vis.get_render_option()
-    opt.line_width = 20
-
-    vis.run()
-    vis.destroy_window()
-
 if __name__ == "__main__":
     test_functions = {
-        "1": test1,
-        "2": test2
+        "1": test1
     }
-    if len(sys.argv) != 3:
-        print("add test number as argument: python3 mainTest.py 2")
+    if len(sys.argv) != 4:
+        print("python3 mainTest.py test_number model_number orientation")
     else:
         test_number = str(sys.argv[1])
         model = sys.argv[2]
+        orientation = sys.argv[3]
         if test_number in test_functions:
-            test_functions[test_number](model)
+            test_functions[test_number](model, orientation)
         else:
             print(f"No test function defined for test{test_number}")
