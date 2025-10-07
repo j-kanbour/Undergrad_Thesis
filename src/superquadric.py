@@ -15,7 +15,7 @@ class Superquadric:
         self.e1, self.e2 = self.estimateE(pcd)
         print(f"        e time: {time.time() - init_time:.3f}s")
 
-        self.superquadric = self.createSuperquadric(pcd, self.e1, self.e2)
+        self.superquadric, self.pose = self.createSuperquadric(pcd, self.e1, self.e2)
         print(f"        SQ time: {time.time() - init_time:.3f}s")
         print(f"        Num Points: {len(self.superquadric.points)}")
 
@@ -51,9 +51,30 @@ class Superquadric:
         Eta, Omega = np.meshgrid(eta, omega, indexing="ij")
 
         # Use the oriented bounding box (OBB) for size, rotation, and centre
-        obb = pcd.get_minimal_oriented_bounding_box()              # OrientedBoundingBox
+        obb = pcd.get_minimal_oriented_bounding_box()
         a1, a2, a3 = obb.extent[0]/2, obb.extent[1]/2, obb.extent[2]/2
-        R = obb.R                                # 3x3 rotation (local -> world)
+        R = obb.R  # 3x3 rotation (local -> world)
+        
+        # Visualize the pose of R
+        import open3d as o3d
+        
+        # Create a coordinate frame at the origin with the rotation R
+        frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=max(a1, a2, a3))
+        frame.rotate(R, center=(0, 0, 0))
+        frame.translate(obb.center)
+        
+        # Create visualizer
+        vis = o3d.visualization.Visualizer()
+        vis.create_window(window_name="Rotation Pose Visualization")
+        
+        # Add geometries
+        vis.add_geometry(pcd)
+        vis.add_geometry(obb)
+        vis.add_geometry(frame)
+        
+        # Run visualizer
+        vis.run()
+        vis.destroy_window()
         center = obb.center                      # world-space centre of the OBB
 
         def sgn(x):  # sign with zero preserved
@@ -96,8 +117,11 @@ class Superquadric:
         superquadricMesh = mesh.sample_points_poisson_disk(number_of_points=n_points, init_factor=5)
         superquadricMesh.estimate_normals()
 
-        return superquadricMesh
+        return superquadricMesh, R
 
 
     def getSuperquadricMesh(self):
         return self.superquadric
+    
+    def getSuperquadricPose(self):
+        return self.pose

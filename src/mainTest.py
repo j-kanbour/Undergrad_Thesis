@@ -89,18 +89,24 @@ def test1(model, orientation=None):
 
     total_mesh = o3d.geometry.PointCloud()
     sq_list = []
+    sq_poses = []
 
     for segment in cloudSegments:
         # Build superquadric object
-        sq = Superquadric(segment).getSuperquadricMesh()
-        sq_list.append(sq)
-        total_mesh += sq
+        sq = Superquadric(segment)
+        sq_pose = sq.getSuperquadricPose()
+        sq_mesh = sq.getSuperquadricMesh()
+
+        sq_list.append(sq_mesh)
+        sq_poses.append(sq_pose)
+        
+        total_mesh += sq_mesh
 
     sq_time = time.time()
 
     #grasp selection
 
-    grasp = Grasps(sq_list, 'harb_rgb_camera_frame', orientation=orientation, gripper_depth=0.0666, gripper_width=0.236)
+    grasp = Grasps(sq_list, sq_poses, orientation=orientation, gripper_depth=0.0666, gripper_width=0.236)
 
     grasp_points = grasp.getGraspPoints()
     grasp_pose = grasp.getSelectedGrasps()
