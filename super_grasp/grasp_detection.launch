@@ -7,7 +7,7 @@
     <arg name="camera_info_topic" default="/hsrb/head_rgbd_sensor/depth_registered/camera_info" />
     <arg name="detections_topic" default="/unsw_vision/detections/objects/positions" />
     <arg name="debug" default='0' />
-    <arg name="gripper_width" default='0.236' />
+    <arg name="grasp_width" default='0.236' />
     <arg name="target_object_id" default='-1' />
     <arg name="target_object_class" default='false' />
     <arg name="orientation" default='front' />
@@ -22,7 +22,7 @@
         <param name="camera_info_topic" value="$(arg camera_info_topic)" />
         <param name="detections_topic" value="$(arg detections_topic)" />
         <param name="debug" value="$(arg debug)" />
-        <param name="gripper_width" value="$(arg gripper_width)" />
+        <param name="grasp_width" value="$(arg grasp_width)" />
         <param name="target_object_id" value="$(arg target_object_id)" />
         <param name="target_object_class" value="$(arg target_object_class)" />
         <param name="orientation" value="$(arg orientation)" />

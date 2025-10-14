@@ -34,7 +34,7 @@ class GraspGenerator():
 
         #load parameters
         self.debug = bool(int(rospy.get_param("~debug")))
-        self.gripper_width = int(rospy.get_param("~gripper_width"))
+        self.grasp_width = float(rospy.get_param("~grasp_width"))
         self.rgb_topic = rospy.get_param("~rgb_topic")
         self.depth_topic = rospy.get_param("~depth_topic")
         self.camera_info_topic = rospy.get_param("~camera_info_topic")
@@ -76,10 +76,8 @@ class GraspGenerator():
         try:
             #loop through all detected objects
             if self.run and detection_msg and detection_msg.objects:
-
                 if self.debug:
                     print("START")
-                init_time = time.time()
 
                 #loop through each detected object in frame
                 for obj in detection_msg.objects:
@@ -88,6 +86,8 @@ class GraspGenerator():
                     if (self.target_obeject_id != -1 and obj.tracking_id != self.target_obeject_id) and \
                         (self.target_obeject_class != 'false' and obj.object_class != self.target_obeject_class):
                         continue
+
+                    init_time = time.time()
 
                     #generate point cloud from rgb, depth and mask
                     pcd = PointCloudData(        
@@ -138,7 +138,7 @@ class GraspGenerator():
                         sq_poses, 
                         self.camera_info.header.frame_id, 
                         orientation=self.orientation, 
-                        gripper_width=self.gripper_width, 
+                        grasp_width=self.grasp_width, 
                         debug=self.debug
                     ).getSelectedGrasps()
 
@@ -186,43 +186,41 @@ class GraspGenerator():
     """Pose Transformation Functions"""
 
     def camera_to_base_transform(self, grasp_pose):
-
         target_frame = "base_footprint"
         try:
-
             #transform the pose frame
             T = self.tf_buffer.lookup_transform(target_frame, grasp_pose.header.frame_id, rospy.Time(0), rospy.Duration(0.2))
             pose = tf2_geometry_msgs.do_transform_pose(grasp_pose, T)
             
-            #re-orientate the pose to point at the object
-            roll, pitch, yaw = euler_from_quaternion([pose.pose.orientation.x,
-                                                pose.pose.orientation.y,
-                                                pose.pose.orientation.z,
-                                                pose.pose.orientation.w])
+            # Calculate yaw to point towards the object (grasp pose position)
+            # Compute direction from base to grasp point in XY plane
+            dx = pose.pose.position.x
+            dy = pose.pose.position.y
+            yaw = np.arctan2(dy, dx)
             
-            r = R.from_euler('xyz', [roll, pitch, yaw])
-
-            # Flipped orientation (180 deg around y-axis)
-            R_orig = r.as_matrix()
-            R_flip = R_orig @ R.from_euler('y', np.pi).as_matrix()
-            quat_flipped = R.from_matrix(R_flip).as_quat()
-
-            # Compute flipped position: move 20 cm backwards along flipped forward (z) axis
-            forward_vector = R_flip[:, 0]  # Z axis of rotation matrix
-            delta_pos = -0.3 * forward_vector
-            new_pos = np.array([pose.pose.position.x , pose.pose.position.y, pose.pose.position.z]) + delta_pos
+            # Create horizontal orientation pointing at the object
+            r = R.from_euler('xyz', [0, 0, yaw])
+            
+            # Get rotation matrix
+            R_horiz = r.as_matrix()
+            quat = r.as_quat()
+            
+            # Compute position: move 30 cm backwards along forward (x) axis
+            forward_vector = R_horiz[:, 0]  # Y axis of rotation matrix
+            delta_pos = -0.5 * forward_vector
+            new_pos = np.array([pose.pose.position.x, pose.pose.position.y, pose.pose.position.z]) + delta_pos
             x, y, z = new_pos
-
+            
             base_pose = PoseStamped()
             base_pose.header.frame_id = "base_footprint"
             base_pose.pose.position.x = x
             base_pose.pose.position.y = y
             base_pose.pose.position.z = 0
-            base_pose.pose.orientation.x = quat_flipped[0]
-            base_pose.pose.orientation.y = quat_flipped[1]
-            base_pose.pose.orientation.z = quat_flipped[2]
-            base_pose.pose.orientation.w = quat_flipped[3]
-                
+            base_pose.pose.orientation.x = quat[0]
+            base_pose.pose.orientation.y = quat[1]
+            base_pose.pose.orientation.z = quat[2]
+            base_pose.pose.orientation.w = quat[3]
+            
             return base_pose
         
         except Exception as e:

@@ -102,7 +102,7 @@ class PointCloudData:
                 color=rgb_o3d,
                 depth=depth_o3d,
                 depth_scale=1000.0,
-                depth_trunc=10.0,
+                depth_trunc=10,
                 convert_rgb_to_intensity=False
             )
 
