@@ -1,4 +1,4 @@
-<!-- file: grasp_generator.launch -->
+<!-- file: grasp_detection.launch -->
 <launch>
     <!-- Args with sensible defaults that match your current code -->   
     <arg name="node_name" default="grasp_generator_node" />
@@ -12,11 +12,10 @@
     <arg name="target_object_class" default='false' />
     <arg name="orientation" default='front' />
 
-    <!-- Start your node -->
-    <!-- Replace pkg and type with your real package and executable script name -->
-    <node pkg="super_grasp" type="grasp_generator.py" name="$(arg node_name)" output="screen">
+    <!-- Start C++ node -->
+    <node pkg="super_grasp" type="grasp_generator_node" name="$(arg node_name)" output="screen">
 
-        <!-- Private params so you can later read with rospy.get_param('~param') -->
+        <!-- Private params -->
         <param name="rgb_topic" value="$(arg rgb_topic)" />
         <param name="depth_topic" value="$(arg depth_topic)" />
         <param name="camera_info_topic" value="$(arg camera_info_topic)" />

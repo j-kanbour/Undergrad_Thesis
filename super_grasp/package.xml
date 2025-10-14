@@ -2,7 +2,7 @@
 <package format="2">
   <name>super_grasp</name>
   <version>1.0.0</version>
-  <description>The super_grasp package</description>
+  <description>The super_grasp package - C++ implementation</description>
 
   <license>NA</license>
 
@@ -12,8 +12,8 @@
   <!-- Build tool -->
   <buildtool_depend>catkin</buildtool_depend>
 
-  <!-- Build & runtime deps (match CMakeLists.txt and your imports) -->
-  <build_depend>rospy</build_depend>
+  <!-- Build dependencies -->
+  <build_depend>roscpp</build_depend>
   <build_depend>std_msgs</build_depend>
   <build_depend>sensor_msgs</build_depend>
   <build_depend>geometry_msgs</build_depend>
@@ -23,8 +23,12 @@
   <build_depend>tf2_geometry_msgs</build_depend>
   <build_depend>cv_bridge</build_depend>
   <build_depend>unsw_vision_msgs</build_depend>
+  <build_depend>image_transport</build_depend>
+  <build_depend>eigen</build_depend>
+  <build_depend>libopenCV-dev</build_depend>
 
-  <exec_depend>rospy</exec_depend>
+  <!-- Runtime dependencies -->
+  <exec_depend>roscpp</exec_depend>
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
@@ -34,10 +38,9 @@
   <exec_depend>tf2_geometry_msgs</exec_depend>
   <exec_depend>cv_bridge</exec_depend>
   <exec_depend>unsw_vision_msgs</exec_depend>
-
-  <!-- If hsrb_interface is available as a ROS package on your robot, keep this. 
-       If it’s just a pip/robot-specific Python module, you can remove it. -->
-  <exec_depend>hsrb_interface</exec_depend>
+  <exec_depend>image_transport</exec_depend>
+  <exec_depend>eigen</exec_depend>
+  <exec_depend>libopenCV</exec_depend>
 
   <export/>
 </package>
