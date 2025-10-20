@@ -133,38 +133,33 @@ class GraspGeneratorService():
             cloudSegment_time = time.time()
 
             superquadrics = []
-            sq_poses = []
 
-            # Build and publish all sqs for debugging
+            #build and publish all sqs for debugging
             if self.debug:
                 allSQs = o3d.geometry.PointCloud()
                 allClouds = o3d.geometry.PointCloud()
 
-            # Generate superquadric fits for each segment
+            #generate superquadric fits for each segment
             for segment in cloudSegments:
                 sq = Superquadric(segment, downsample=30, debug=self.debug)
-                sq_mesh = sq.getSuperquadricMesh()
-                sq_pose = sq.getSQPose()
-                superquadrics.append(sq_mesh)
-                sq_poses.append(sq_pose)
+                superquadrics.append(sq)
 
                 if self.debug:
+                    sq_mesh = sq.getSuperquadricMesh()
                     allSQs += sq_mesh
                     allClouds += segment
 
             sq_time = time.time()
 
-            # Generate and select grasp from select superquadric
+            #generate and select grasp from select superquadric
             graspPose = Grasps(
                 superquadrics, 
-                sq_poses, 
                 self.camera_info.header.frame_id, 
-                orientation=req.orientation, 
+                object_center = pcd.get_center(),
+                orientation=self.orientation, 
                 grasp_width=self.grasp_width, 
                 debug=self.debug
             ).getSelectedGrasps()
-
-            grasp_time = time.time()
 
             # Transform grasp to base frame
             base_frame_pose = self.camera_to_base_transform(graspPose)
