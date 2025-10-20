@@ -1,0 +1,12 @@
+# Request
+int32 target_object_id          # -1 for any object
+string target_object_class       # "false" for any class
+string orientation              # "Top" or "Front"
+
+---
+
+# Response
+bool success
+string message
+geometry_msgs/PoseStamped grasp_pose_base
+geometry_msgs/PoseStamped grasp_pose_hand
