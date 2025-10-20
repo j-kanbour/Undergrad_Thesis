@@ -109,7 +109,6 @@ class GraspGenerator():
                     cloudSegment_time = time.time()
 
                     superquadrics = []
-                    sq_poses = []
 
                     #build and publish all sqs for debugging
                     if self.debug:
@@ -120,13 +119,10 @@ class GraspGenerator():
                     for segment in cloudSegments:
                         sq = Superquadric(segment, downsample=30, debug=self.debug)
 
-                        sq_mesh = sq.getSuperquadricMesh()
-                        sq_pose = sq.getSQPose()
-
-                        superquadrics.append(sq_mesh)
-                        sq_poses.append(sq_pose)
+                        superquadrics.append(sq)
 
                         if self.debug:
+                            sq_mesh = sq.getSuperquadricMesh()
                             allSQs += sq_mesh
                             allClouds += segment
 
@@ -135,8 +131,8 @@ class GraspGenerator():
                     #generate and select grasp from select superquadric
                     graspPose = Grasps(
                         superquadrics, 
-                        sq_poses, 
                         self.camera_info.header.frame_id, 
+                        object_center = pcd.get_center(),
                         orientation=self.orientation, 
                         grasp_width=self.grasp_width, 
                         debug=self.debug
