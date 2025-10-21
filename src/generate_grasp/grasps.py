@@ -116,8 +116,8 @@ class Grasps:
         
         grasp_point = sq.getCentroid()
         bbox_extent = sq.extent()
-        grasp_width = self.grasp_width
-        object_center = self.object_center
+        init_pose = sq.getSQPose()
+        object_center = self.object_center.flatten()
         
         try:
             # Create PoseStamped message
@@ -132,15 +132,8 @@ class Grasps:
             
             # Calculate orientation
             # a) Z-axis points towards object_center
-            z_axis = np.array(object_center) - np.array(grasp_point)
+            z_axis = object_center - np.array(grasp_point)
             z_axis = z_axis / np.linalg.norm(z_axis)  # Normalize
-            
-            # b) Y-axis points across the shortest extent
-            # First, get the superquadric's rotation matrix if available
-            if hasattr(sq, 'getRotation'):
-                sq_rotation = sq.getRotation()
-            else:
-                sq_rotation = np.eye(3)
             
             # Find the shortest extent axis
             extents = bbox_extent
@@ -151,19 +144,19 @@ class Grasps:
             shortest_axis_local[min_extent_idx] = 1.0
             
             # Transform to world frame
-            shortest_axis_world = sq_rotation @ shortest_axis_local
+            shortest_axis_world = init_pose @ shortest_axis_local
             
             # Make y_axis perpendicular to z_axis
             # Project shortest_axis onto plane perpendicular to z_axis
             y_axis = shortest_axis_world - np.dot(shortest_axis_world, z_axis) * z_axis
             
-            # If y_axis is too small (shortest axis is parallel to z_axis), use alternative
-            if np.linalg.norm(y_axis) < 0.001:
-                # Use any perpendicular vector
-                if abs(z_axis[0]) < 0.9:
-                    y_axis = np.cross(z_axis, np.array([1, 0, 0]))
-                else:
-                    y_axis = np.cross(z_axis, np.array([0, 1, 0]))
+            # # If y_axis is too small (shortest axis is parallel to z_axis), use alternative
+            # if np.linalg.norm(y_axis) < 0.001:
+            #     # Use any perpendicular vector
+            #     if abs(z_axis[0]) < 0.9:
+            #         y_axis = np.cross(z_axis, np.array([1, 0, 0]))
+            #     else:
+            #         y_axis = np.cross(z_axis, np.array([0, 1, 0]))
             
             y_axis = y_axis / np.linalg.norm(y_axis)  # Normalize
             
