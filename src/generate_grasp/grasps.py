@@ -23,21 +23,17 @@
 
 """
 Notes, 
-✅ sq-chosen depends on the orientation (front == closest, top == highest)
 
-✅ z-axis align to the get the center of the object
-❌ x-axis points along the long extent
-❌ y-axis points along the short 'graspabale axis'
+Sample all ponts on the target SQ
+    ✅ For front- get closest point on closest sq	
 
-this way were focusing on possible grasps opposed to optimal
+    ✅ For top- get highest point on highest sq
 
-may need to re-configure the sq_list message passed to this function
-such that instead of sq_list [open3d pcd] and sq_pose
-just pass the sq object you created containg functions 
-- get centroid (used to place point)
-- get pose (not used)
-- get extent (used with axis to orientate pose)
-- get axis (used with extent to orientate pose)
+    ✅ Z-axis points to centre of sq
+    
+    X-axis points along the long extent
+    Y-axis points along the short extent
+
 """
 
 import rospy
@@ -62,11 +58,11 @@ class Grasps:
         
         time_start = time.time()
 
-        self.primarySQ = self.SQFiltering(sq_list)
+        self.primarySQ, self.grasp_point = self.SQFiltering(sq_list)
         time1 = time.time() - time_start
 
 
-        self.selectedGrasps = self.generatePose(self.primarySQ, self.target_frame)
+        self.selectedGrasps = self.generatePose(self.primarySQ, self.grasp_point, self.target_frame)
         time2 = time.time() - time_start - time1
 
         if self.debug:
@@ -85,11 +81,15 @@ class Grasps:
                 # Sort by Euclidean distance in the XY–Z plane (closest object to camera)
                 # Sort both lists together based on 3D distance from origin
                 sq_closest = sorted(sq_list, key=lambda x: np.linalg.norm(x.getCenter()[:3]))
+                sq_closest = list(sq_closest)[0]
 
-                # Unzip back into separate lists
-                sq_closest = list(sq_closest)
+                sq_points = sq_closest.getSuperquadricMesh().points
+                points = np.asarray(sq_points)
+                distances_xz = np.sqrt(points[:, 0]**2 + points[:, 2]**2)
+                closest_index = np.argmin(distances_xz)
+                closest_point = points[closest_index]
 
-                return sq_closest[0]
+                return sq_closest, closest_point
 
             elif self.orientation == 'top':
                 # Sort by Y-axis (highest object first)
@@ -100,25 +100,31 @@ class Grasps:
                                 reverse=False)
 
                 # Unzip back into separate lists
-                sq_list(sq_highest)
+                sq_highest = sq_list(sq_highest)[0]
+                sq_points = sq_closest.getSuperquadricMesh().points
+                points = np.asarray(sq_points)
+                # Find the index of the point with maximum y value
+                highest_index = np.argmax(points[:, 1])
 
-                return sq_highest[0]
+                # Get the highest point
+                highest_point = points[highest_index]
+
+                return sq_highest, highest_point
             
             return None
         
         except Exception as e:
             print(f"grasp [graspPointFiltering] Error: {e}")
             return None
-
-    def generatePose(self, sq, frame_id):
+        
+    def generatePose(self, sq, grasp_point, frame_id):
         """
         Generate a PoseStamped by projecting a pose onto a point.
         """
         
-        grasp_point = sq.getCenter()
+        sq_center = sq.getCenter()
         bbox_extent = sq.getBBOXExtent()
         init_pose = sq.getSQPose()
-        object_center = self.object_center.flatten()
         
         try:
             # Create PoseStamped message
@@ -133,37 +139,61 @@ class Grasps:
             
             # Calculate orientation
             # a) Z-axis points towards object_center
-            z_axis = object_center - np.array(grasp_point)
+            z_axis = sq_center - np.array(grasp_point)
             z_axis = z_axis / np.linalg.norm(z_axis)  # Normalize
             
-            # Find the shortest extent axis
+            # Find the shortest and longest extent axes
             extents = bbox_extent
-            min_extent_idx = np.argmin(extents)
+            sorted_indices = np.argsort(extents)
+            min_extent_idx = sorted_indices[0]  # Shortest
+            max_extent_idx = sorted_indices[2]  # Longest
             
-            # Get the axis corresponding to the shortest extent in the superquadric frame
+            # Get the axes in the superquadric's local frame
             shortest_axis_local = np.zeros(3)
             shortest_axis_local[min_extent_idx] = 1.0
             
-            # Transform to world frame
-            shortest_axis_world = init_pose @ shortest_axis_local
+            longest_axis_local = np.zeros(3)
+            longest_axis_local[max_extent_idx] = 1.0
             
-            # Make y_axis perpendicular to z_axis
-            # Project shortest_axis onto plane perpendicular to z_axis
+            # Transform to world frame using the pose rotation matrix
+            # Extract rotation matrix from init_pose (assuming it's a 4x4 transformation matrix)
+            rotation_matrix_sq = init_pose[:3, :3]
+            
+            shortest_axis_world = rotation_matrix_sq @ shortest_axis_local
+            longest_axis_world = rotation_matrix_sq @ longest_axis_local
+            
+            # Project axes onto plane perpendicular to z_axis and assign to y and x
+            # Y-axis should align with shortest extent
             y_axis = shortest_axis_world - np.dot(shortest_axis_world, z_axis) * z_axis
+            y_axis_norm = np.linalg.norm(y_axis)
             
-            # # If y_axis is too small (shortest axis is parallel to z_axis), use alternative
-            # if np.linalg.norm(y_axis) < 0.001:
-            #     # Use any perpendicular vector
-            #     if abs(z_axis[0]) < 0.9:
-            #         y_axis = np.cross(z_axis, np.array([1, 0, 0]))
-            #     else:
-            #         y_axis = np.cross(z_axis, np.array([0, 1, 0]))
+            # X-axis should align with longest extent
+            x_axis = longest_axis_world - np.dot(longest_axis_world, z_axis) * z_axis
+            x_axis_norm = np.linalg.norm(x_axis)
             
-            y_axis = y_axis / np.linalg.norm(y_axis)  # Normalize
-            
-            # Calculate x_axis to complete right-handed coordinate system
-            x_axis = np.cross(y_axis, z_axis)
-            x_axis = x_axis / np.linalg.norm(x_axis)  # Normalize
+            # If one of the projections is too small, use cross product approach
+            if y_axis_norm < 0.1 or x_axis_norm < 0.1:
+                # Fallback: use the axis that has better projection
+                if y_axis_norm > x_axis_norm:
+                    y_axis = y_axis / y_axis_norm
+                    x_axis = np.cross(y_axis, z_axis)
+                    x_axis = x_axis / np.linalg.norm(x_axis)
+                else:
+                    x_axis = x_axis / x_axis_norm
+                    y_axis = np.cross(z_axis, x_axis)
+                    y_axis = y_axis / np.linalg.norm(y_axis)
+            else:
+                # Normalize both
+                y_axis = y_axis / y_axis_norm
+                x_axis = x_axis / x_axis_norm
+                
+                # Make sure they're orthogonal by adjusting x_axis
+                x_axis = x_axis - np.dot(x_axis, y_axis) * y_axis
+                x_axis = x_axis / np.linalg.norm(x_axis)
+                
+                # Ensure right-handed coordinate system
+                if np.dot(np.cross(x_axis, y_axis), z_axis) < 0:
+                    x_axis = -x_axis
             
             # Construct rotation matrix [x_axis, y_axis, z_axis]
             rotation_matrix = np.column_stack((x_axis, y_axis, z_axis))
@@ -183,6 +213,9 @@ class Grasps:
                 print(f"grasp: Orientation (quaternion): [{quat[0]:.3f}, {quat[1]:.3f}, {quat[2]:.3f}, {quat[3]:.3f}]")
                 print(f"grasp: Z-axis pointing to object center: [{z_axis[0]:.3f}, {z_axis[1]:.3f}, {z_axis[2]:.3f}]")
                 print(f"grasp: Y-axis along shortest extent: [{y_axis[0]:.3f}, {y_axis[1]:.3f}, {y_axis[2]:.3f}]")
+                print(f"grasp: X-axis along longest extent: [{x_axis[0]:.3f}, {x_axis[1]:.3f}, {x_axis[2]:.3f}]")
+                print(f"grasp: Extents [x,y,z]: [{extents[0]:.3f}, {extents[1]:.3f}, {extents[2]:.3f}]")
+                print(f"grasp: Shortest axis index: {min_extent_idx}, Longest axis index: {max_extent_idx}")
             
             return pose_stamped
         
