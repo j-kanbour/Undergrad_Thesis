@@ -160,7 +160,7 @@ class Superquadric:
     def getSuperquadricMesh(self):
         return self.superquadric
     
-    def getCentroid(self):
+    def getCenter(self):
         return self.centroid
     
     def getBBOXExtent(self):

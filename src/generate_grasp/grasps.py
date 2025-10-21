@@ -65,6 +65,7 @@ class Grasps:
         self.primarySQ = self.SQFiltering(sq_list)
         time1 = time.time() - time_start
 
+
         self.selectedGrasps = self.generatePose(self.primarySQ, self.target_frame)
         time2 = time.time() - time_start - time1
 
@@ -83,7 +84,7 @@ class Grasps:
             if self.orientation == 'front' or self.orientation is None:
                 # Sort by Euclidean distance in the XY–Z plane (closest object to camera)
                 # Sort both lists together based on 3D distance from origin
-                sq_closest = sorted(sq_list, key=lambda x: np.linalg.norm(x.getCentroid()[:3]))
+                sq_closest = sorted(sq_list, key=lambda x: np.linalg.norm(x.getCenter()[:3]))
 
                 # Unzip back into separate lists
                 sq_closest = list(sq_closest)
@@ -95,7 +96,7 @@ class Grasps:
 
                 # Sort both lists together based on superquadric Y-coordinate
                 sq_highest = sorted(sq_list,
-                                key=lambda x: x.getCentroid()[1],
+                                key=lambda x: x.getCenter()[1],
                                 reverse=False)
 
                 # Unzip back into separate lists
@@ -114,8 +115,8 @@ class Grasps:
         Generate a PoseStamped by projecting a pose onto a point.
         """
         
-        grasp_point = sq.getCentroid()
-        bbox_extent = sq.extent()
+        grasp_point = sq.getCenter()
+        bbox_extent = sq.getBBOXExtent()
         init_pose = sq.getSQPose()
         object_center = self.object_center.flatten()
         

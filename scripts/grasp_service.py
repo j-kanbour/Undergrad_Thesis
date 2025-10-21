@@ -152,14 +152,16 @@ class GraspGeneratorService():
             sq_time = time.time()
 
             #generate and select grasp from select superquadric
+            print('1111')
             graspPose = Grasps(
                 superquadrics, 
                 self.camera_info.header.frame_id, 
                 object_center = pcd.getCenter(),
-                orientation=req.orientation, 
-                grasp_width=self.grasp_width, 
-                debug=self.debug
+                orientation= req.orientation, 
+                grasp_width= self.grasp_width, 
+                debug= self.debug
             ).getSelectedGrasps()
+            print(2222)
 
 
             # Transform grasp to base frame
