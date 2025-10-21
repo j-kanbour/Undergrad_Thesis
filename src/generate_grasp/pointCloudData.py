@@ -165,5 +165,8 @@ class PointCloudData:
     def getPCD(self):
         return self.pcd
 
+    def getCenter(self):
+        return self.pcd.get_center()
+
     def getCloudSegments(self):
         return self.defineSegments(self.pcd)

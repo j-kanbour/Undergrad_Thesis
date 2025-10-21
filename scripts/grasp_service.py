@@ -155,17 +155,20 @@ class GraspGeneratorService():
             graspPose = Grasps(
                 superquadrics, 
                 self.camera_info.header.frame_id, 
-                object_center = pcd.get_center(),
-                orientation=self.orientation, 
+                object_center = pcd.getCenter(),
+                orientation=req.orientation, 
                 grasp_width=self.grasp_width, 
                 debug=self.debug
             ).getSelectedGrasps()
+
 
             # Transform grasp to base frame
             base_frame_pose = self.camera_to_base_transform(graspPose)
             
             # Transform grasp to hand frame
             hand_frame_pose = self.camera_to_hand_transform(graspPose)
+
+            grasp_time = time.time()
 
             if base_frame_pose is None or hand_frame_pose is None:
                 response.success = False
