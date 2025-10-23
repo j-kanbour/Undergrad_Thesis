@@ -116,7 +116,7 @@ class Grasps:
         except Exception as e:
             print(f"grasp [graspPointFiltering] Error: {e}")
             return None
-        
+
     def generatePose(self, sq, grasp_point, frame_id):
         """
         Generate a PoseStamped by projecting a pose onto a point.
@@ -125,6 +125,7 @@ class Grasps:
         sq_center = sq.getCenter()
         bbox_extent = sq.getBBOXExtent()
         init_pose = sq.getSQPose()
+        object_center = self.object_center
         
         try:
             # Create PoseStamped message
@@ -138,8 +139,10 @@ class Grasps:
             pose_stamped.pose.position.z = float(grasp_point[2])
             
             # Calculate orientation
-            # a) Z-axis points towards object_center
-            z_axis = sq_center - np.array(grasp_point)
+            # a) Z-axis points towards object_center in x,y plane only
+            # Create a target point at object_center's x,y but grasp_point's z
+            target_point = np.array([object_center[0], object_center[1], grasp_point[2]])
+            z_axis = target_point - np.array(grasp_point)
             z_axis = z_axis / np.linalg.norm(z_axis)  # Normalize
             
             # Find the shortest and longest extent axes
