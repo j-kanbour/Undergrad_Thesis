@@ -83,7 +83,7 @@ class GraspGenerator():
                 for obj in detection_msg.objects:
 
                     #if obejct id or class is specified, only process that object
-                    if (self.target_obeject_id != -1 and obj.tracking_id != self.target_obeject_id) and \
+                    if (self.target_obeject_id != -1 and obj.tracking_id != self.target_obeject_id) or \
                         (self.target_obeject_class != 'false' and obj.object_class != self.target_obeject_class):
                         continue
 

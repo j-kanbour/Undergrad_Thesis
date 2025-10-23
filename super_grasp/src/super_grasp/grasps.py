@@ -83,45 +83,42 @@ class Grasps:
                 sq_closest = sorted(sq_list, key=lambda x: np.linalg.norm(x.getCenter()[:3]))
                 sq_closest = list(sq_closest)[0]
 
-                sq_points = sq_closest.getSuperquadricMesh().points
-                points = np.asarray(sq_points)
-                distances_xz = np.sqrt(points[:, 0]**2 + points[:, 2]**2)
-                closest_index = np.argmin(distances_xz)
-                closest_point = points[closest_index]
+                sq_center = sq_closest.getCenter()
 
-                return sq_closest, closest_point
+                return sq_closest, sq_center
 
             elif self.orientation == 'top':
-                # Sort by Y-axis (highest object first)
-
-                # Sort both lists together based on superquadric Y-coordinate
+                # Sort by Z-axis (highest object first)
+                # Sort both lists together based on superquadric Z-coordinate
                 sq_highest = sorted(sq_list,
                                 key=lambda x: x.getCenter()[1],
-                                reverse=False)
-
-                # Unzip back into separate lists
-                sq_highest = sq_list(sq_highest)[0]
-                sq_points = sq_closest.getSuperquadricMesh().points
+                                reverse=False)  # Changed to True to get highest first
+                
+                # Get the highest superquadric
+                sq_highest = sq_highest[0]
+                
+                # Get the mesh points from the highest superquadric
+                sq_points = sq_highest.getSuperquadricMesh().points
                 points = np.asarray(sq_points)
-                # Find the index of the point with maximum y value
-                highest_index = np.argmax(points[:, 1])
-
+                
+                # Find the index of the point with maximum z value
+                highest_index = np.argmin(points[:, 1])
+                
                 # Get the highest point
                 highest_point = points[highest_index]
-
+                
                 return sq_highest, highest_point
-            
-            return None
+            else:
+                return None, None  # Or handle other cases appropriately
         
         except Exception as e:
             print(f"grasp [graspPointFiltering] Error: {e}")
             return None
-
+        
     def generatePose(self, sq, grasp_point, frame_id):
         """
         Generate a PoseStamped by projecting a pose onto a point.
         """
-        
         sq_center = sq.getCenter()
         bbox_extent = sq.getBBOXExtent()
         init_pose = sq.getSQPose()
@@ -138,92 +135,68 @@ class Grasps:
             pose_stamped.pose.position.y = float(grasp_point[1])
             pose_stamped.pose.position.z = float(grasp_point[2])
             
-            # Calculate orientation
-            # a) Z-axis points towards object_center in x,y plane only
-            # Create a target point at object_center's x,y but grasp_point's z
-            target_point = np.array([object_center[0], object_center[1], grasp_point[2]])
-            z_axis = target_point - np.array(grasp_point)
-            z_axis = z_axis / np.linalg.norm(z_axis)  # Normalize
+            # orientation z : points towards z AXIS of object_center
+            # orientation y : points across shortest extent of bbox_extent
+            # orientation x : remaining point
+            # important note, the above orientations are in hierarchy
             
-            # Find the shortest and longest extent axes
-            extents = bbox_extent
-            sorted_indices = np.argsort(extents)
-            min_extent_idx = sorted_indices[0]  # Shortest
-            max_extent_idx = sorted_indices[2]  # Longest
+            # Z-axis is perpendicular to the radial line, pointing upward (world Z direction)
+            # This is perpendicular to the line connecting the points in XY plane
+            if self.orientation == 'front' or self.orientation == None:
+                z_axis = np.array([0.0, 0.0, 1.0])
+            else:
+                z_axis = np.array([0.0,1.0,0.0])
             
-            # Get the axes in the superquadric's local frame
-            shortest_axis_local = np.zeros(3)
-            shortest_axis_local[min_extent_idx] = 1.0
             
-            longest_axis_local = np.zeros(3)
-            longest_axis_local[max_extent_idx] = 1.0
+            # Find shortest extent of bounding box for y-axis direction
+            extents = np.array(bbox_extent)
+            min_extent_idx = np.argmin(extents)
             
-            # Transform to world frame using the pose rotation matrix
-            # Extract rotation matrix from init_pose (assuming it's a 4x4 transformation matrix)
-            rotation_matrix_sq = init_pose[:3, :3]
+            # Create a temporary y-axis candidate along the shortest extent direction
+            y_axis_candidate = np.zeros(3)
+            y_axis_candidate[min_extent_idx] = 1.0
             
-            shortest_axis_world = rotation_matrix_sq @ shortest_axis_local
-            longest_axis_world = rotation_matrix_sq @ longest_axis_local
-            
-            # Project axes onto plane perpendicular to z_axis and assign to y and x
-            # Y-axis should align with shortest extent
-            y_axis = shortest_axis_world - np.dot(shortest_axis_world, z_axis) * z_axis
+            # Make y-axis orthogonal to z-axis using Gram-Schmidt
+            y_axis = y_axis_candidate - np.dot(y_axis_candidate, z_axis) * z_axis
             y_axis_norm = np.linalg.norm(y_axis)
             
-            # X-axis should align with longest extent
-            x_axis = longest_axis_world - np.dot(longest_axis_world, z_axis) * z_axis
-            x_axis_norm = np.linalg.norm(x_axis)
+            # Handle case where y_axis_candidate is parallel to z_axis
+            if y_axis_norm < 1e-6:
+                # Choose a different axis
+                alt_idx = (min_extent_idx + 1) % 3
+                y_axis_candidate = np.zeros(3)
+                y_axis_candidate[alt_idx] = 1.0
+                y_axis = y_axis_candidate - np.dot(y_axis_candidate, z_axis) * z_axis
+                y_axis_norm = np.linalg.norm(y_axis)
             
-            # If one of the projections is too small, use cross product approach
-            if y_axis_norm < 0.1 or x_axis_norm < 0.1:
-                # Fallback: use the axis that has better projection
-                if y_axis_norm > x_axis_norm:
-                    y_axis = y_axis / y_axis_norm
-                    x_axis = np.cross(y_axis, z_axis)
-                    x_axis = x_axis / np.linalg.norm(x_axis)
-                else:
-                    x_axis = x_axis / x_axis_norm
-                    y_axis = np.cross(z_axis, x_axis)
-                    y_axis = y_axis / np.linalg.norm(y_axis)
-            else:
-                # Normalize both
-                y_axis = y_axis / y_axis_norm
-                x_axis = x_axis / x_axis_norm
-                
-                # Make sure they're orthogonal by adjusting x_axis
-                x_axis = x_axis - np.dot(x_axis, y_axis) * y_axis
-                x_axis = x_axis / np.linalg.norm(x_axis)
-                
-                # Ensure right-handed coordinate system
-                if np.dot(np.cross(x_axis, y_axis), z_axis) < 0:
-                    x_axis = -x_axis
+            y_axis = y_axis / y_axis_norm
             
-            # Construct rotation matrix [x_axis, y_axis, z_axis]
-            rotation_matrix = np.column_stack((x_axis, y_axis, z_axis))
+            # Calculate x-axis as cross product (completes right-handed coordinate system)
+            x_axis = np.cross(y_axis, z_axis)
+            x_axis = x_axis / np.linalg.norm(x_axis)
+            
+            # Build rotation matrix from axes
+            rotation_matrix = np.column_stack([x_axis, y_axis, z_axis])
             
             # Convert rotation matrix to quaternion
-            scipy_rotation = R.from_matrix(rotation_matrix)
-            quat = scipy_rotation.as_quat()  # Returns [x, y, z, w]
+            from tf.transformations import quaternion_from_matrix
+            
+            # Create 4x4 homogeneous transformation matrix
+            transform_matrix = np.eye(4)
+            transform_matrix[:3, :3] = rotation_matrix
+            
+            quaternion = quaternion_from_matrix(transform_matrix)
             
             # Set orientation
-            pose_stamped.pose.orientation.x = float(quat[0])
-            pose_stamped.pose.orientation.y = float(quat[1])
-            pose_stamped.pose.orientation.z = float(quat[2])
-            pose_stamped.pose.orientation.w = float(quat[3])
-            
-            if self.debug:
-                print(f"grasp: Generated grasp pose at position: [{grasp_point[0]:.3f}, {grasp_point[1]:.3f}, {grasp_point[2]:.3f}]")
-                print(f"grasp: Orientation (quaternion): [{quat[0]:.3f}, {quat[1]:.3f}, {quat[2]:.3f}, {quat[3]:.3f}]")
-                print(f"grasp: Z-axis pointing to object center: [{z_axis[0]:.3f}, {z_axis[1]:.3f}, {z_axis[2]:.3f}]")
-                print(f"grasp: Y-axis along shortest extent: [{y_axis[0]:.3f}, {y_axis[1]:.3f}, {y_axis[2]:.3f}]")
-                print(f"grasp: X-axis along longest extent: [{x_axis[0]:.3f}, {x_axis[1]:.3f}, {x_axis[2]:.3f}]")
-                print(f"grasp: Extents [x,y,z]: [{extents[0]:.3f}, {extents[1]:.3f}, {extents[2]:.3f}]")
-                print(f"grasp: Shortest axis index: {min_extent_idx}, Longest axis index: {max_extent_idx}")
+            pose_stamped.pose.orientation.x = quaternion[0]
+            pose_stamped.pose.orientation.y = quaternion[1]
+            pose_stamped.pose.orientation.z = quaternion[2]
+            pose_stamped.pose.orientation.w = quaternion[3]
             
             return pose_stamped
-        
-        except Exception as e:      
-            print(f"grasp [generatePose] Error: {e}")
+            
+        except Exception as e:
+            rospy.logerr(f"Error generating pose: {e}")
             return None
         
     def getGraspPoints(self):
@@ -231,3 +204,4 @@ class Grasps:
     
     def getSelectedGrasps(self):
         return self.selectedGrasps
+    
