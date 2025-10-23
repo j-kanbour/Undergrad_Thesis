@@ -32,12 +32,15 @@ class Superquadric:
         init_time = time.time()
         self.debug = debug
         self.downsample = downsample
+        self.extent = None
+        self.pose = None
+        self.center = None
 
         # estimate e1, e2 for superquadric fitting
         self.e1, self.e2 = self.estimateE(pcd)
 
         # create superquadric mesh and pose
-        self.superquadric, self.pose = self.createSuperquadric(pcd, self.e1, self.e2)
+        self.superquadric = self.createSuperquadric(pcd, self.e1, self.e2)
 
         if self.debug:
             print(f"Superquadric: time: {time.time() - init_time:.3f}s")
@@ -56,8 +59,8 @@ class Superquadric:
 
         try:
             points = np.asarray(pcd.points)
-            centroid = pcd.get_center()
-            centered_points = points - centroid
+            center = pcd.get_center()
+            centered_points = points - center
 
             # Compute Fisher kurtosis for x, y, z axes of the point cloud
             krt = kurtosis(centered_points, axis=0, fisher=True, bias=False)
@@ -106,9 +109,13 @@ class Superquadric:
             
             # Now compute OBB
             obb = pcd.get_oriented_bounding_box()
-            a1, a2, a3 = obb.extent[0] / 2.0, obb.extent[1] / 2.0, obb.extent[2] / 2.0
-            R_matrix = obb.R
-            center = obb.center
+
+            self.extent = obb.extent
+            a1, a2, a3 = self.extent[0] / 2.0, self.extent[1] / 2.0, self.extent[2] / 2.0
+
+            self.pose = obb.R
+
+            self.center = obb.center
 
             # Decide target number of points for final model (downsampling if needed)
             n_points = max(100, int(len(pcd.points) * self.downsample // 100))
@@ -133,7 +140,7 @@ class Superquadric:
 
             # World transform
             V_local = np.stack([x, y, z], axis=1) 
-            V_world = (R_matrix @ V_local.T).T + center
+            V_world = (self.pose @ V_local.T).T + self.center
 
             # Build point cloud directly
             sq_pcd = o3d.geometry.PointCloud()
@@ -144,15 +151,20 @@ class Superquadric:
                 search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.02, max_nn=30)
             )
 
-            return sq_pcd, R_matrix
+            return sq_pcd
         
         except Exception as e:
             print(f"superquadric [createSuperquadric] Error: {e}")
             return 1.0, 1.0
 
-
     def getSuperquadricMesh(self):
         return self.superquadric
+    
+    def getCenter(self):
+        return self.center
+    
+    def getBBOXExtent(self):
+        return self.extent
     
     def getSQPose(self):
         return self.pose
