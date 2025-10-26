@@ -81,9 +81,14 @@ class Grasps:
                 # Sort by Euclidean distance in the XY–Z plane (closest object to camera)
                 # Sort both lists together based on 3D distance from origin
                 sq_closest = sorted(sq_list, key=lambda x: np.linalg.norm(x.getCenter()[:3]))
-                sq_closest = list(sq_closest)[0]
-
-                sq_center = sq_closest.getCenter()
+                for i in sq_closest:
+                    sq_closest = list(sq_closest)[i]
+                    
+                    sorted_extent = sorted(sq_closest.getBBOXExtent(), reverse=True)
+                    if sorted_extent[0] > self.grasp_width and sorted_extent[1] > self.grasp_width:
+                        continue
+    
+                    sq_center = sq_closest.getCenter()
 
                 return sq_closest, sq_center
 
@@ -93,19 +98,24 @@ class Grasps:
                 sq_highest = sorted(sq_list,
                                 key=lambda x: x.getCenter()[1],
                                 reverse=False)  # Changed to True to get highest first
+
+                for i in sq_highest:
+                                        # Get the highest superquadric
+                    sq_highest = sq_highest[0]
+                    
+                    sorted_extent = sorted(sq_highest.getBBOXExtent(), reverse=True)
+                    if sorted_extent[0] > self.grasp_width and sorted_extent[1] > self.grasp_width:
+                        continue
                 
-                # Get the highest superquadric
-                sq_highest = sq_highest[0]
-                
-                # Get the mesh points from the highest superquadric
-                sq_points = sq_highest.getSuperquadricMesh().points
-                points = np.asarray(sq_points)
-                
-                # Find the index of the point with maximum z value
-                highest_index = np.argmin(points[:, 1])
-                
-                # Get the highest point
-                highest_point = points[highest_index]
+                    # Get the mesh points from the highest superquadric
+                    sq_points = sq_highest.getSuperquadricMesh().points
+                    points = np.asarray(sq_points)
+                    
+                    # Find the index of the point with maximum z value
+                    highest_index = np.argmin(points[:, 1])
+                    
+                    # Get the highest point
+                    highest_point = points[highest_index]
                 
                 return sq_highest, highest_point
             else:
