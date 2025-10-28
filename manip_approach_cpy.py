@@ -149,47 +149,100 @@ class ManipApproach(object):
             
             self.open_gripper()
             
-            # Move to neutral pose
+            # move to that pose
             self._whole_body.move_to_neutral()
+            # self.arm_joint_init(z)
+        
             
-            # Move base to grasp position using whole_body
-            try:
-                # Move base only (not whole body)
-                hsrb_pose = self.pose_to_hsrb_geometry_pose(graspPose_base.pose)
-                self._whole_body.move_end_effector_pose(hsrb_pose, ref_frame_id='base_footprint', plan_only=False)
-                
-                rospy.sleep(1.0)
-                rospy.loginfo("Base moved to grasp position")
-                
-            except Exception as e:
-                rospy.logerr(f"Failed to move base: {e}")
-                raise
+            result.action_success = True
+            result.forward_distance = 0.3
+            self._as.set_succeeded(result)
 
-            try:
-                # Use the frame from the PoseStamped
-                hsrb_pose = self.pose_to_hsrb_geometry_pose(graspPose_hand.pose)
-                self._whole_body.move_end_effector_pose(hsrb_pose, ref_frame_id='hand_palm_link', plan_only=False)              
-                
-                rospy.sleep(1.0)
-                rospy.loginfo("Hand moved to grasp position")
-                
-            except Exception as e:
-                rospy.logerr(f"Failed to move hand: {e}")
-                raise
-            
+            def _pose_to_tuple(ps):
+                p = ps.pose.position
+                q = ps.pose.orientation
+                return (p.x, p.y, p.z), (q.x, q.y, q.z, q.w)
 
+
+            # Wrap into a MoveBaseGoal
+            goal = MoveBaseGoal()
+            goal.target_pose = graspPose_base
+            goal.target_pose.header.stamp = rospy.Time.now()
+
+            # Send to move_base
+            self.move_base_action_client.send_goal_and_wait(goal)
+
+            result.action_success = True
+            result.forward_distance = 0.0
+            self._as.set_succeeded(result)
+
+            pos_h, quat_h = _pose_to_tuple(graspPose_hand)
+            self._whole_body.move_end_effector_pose((pos_h, quat_h), "hand_palm_link")
+    
+            # # move it to allign better
+            # # To overcome the tf misallign for hand plam link
+            # # THIS IS A HACK NOW NEED TO BE REVISED LATER
+            # if direction in ["top", "top2"]:
+            #     line_traj = (-1, 0, 0)
+            #     l =  0.03
+                
+            #     self._whole_body.end_effector_ffector_by_line(line_traj,l)
+            # return the value if success, otherwise the error will be captured and false will be returned
             result.action_success = True
             result.forward_distance = 0.2
             self._as.set_succeeded(result)
-            
+
+            # set the feedback to not started
+            feedback.feedback = 0  # Not started
+            self._as.publish_feedback(feedback)
+            return
+        
         except Exception as e:
             rospy.logwarn("Failed moving body. {}".format(e))
-            feedback.feedback = 2  # Failure
-            self._as.publish_feedback(feedback)
-            result.action_success = False
-            result.forward_distance = 0
             self._as.set_aborted(result)
             return
+
+        #     # Move to neutral pose
+        #     self._whole_body.move_to_neutral()
+            
+        #     # Move base to grasp position using whole_body
+        #     try:
+        #         # Move base only (not whole body)
+        #         hsrb_pose = self.pose_to_hsrb_geometry_pose(graspPose_base.pose)
+        #         self._whole_body.move_end_effector_pose(hsrb_pose, ref_frame_id='base_footprint', plan_only=False)
+                
+        #         rospy.sleep(1.0)
+        #         rospy.loginfo("Base moved to grasp position")
+                
+        #     except Exception as e:
+        #         rospy.logerr(f"Failed to move base: {e}")
+        #         raise
+
+        #     try:
+        #         # Use the frame from the PoseStamped
+        #         hsrb_pose = self.pose_to_hsrb_geometry_pose(graspPose_hand.pose)
+        #         self._whole_body.move_end_effector_pose(hsrb_pose, ref_frame_id='hand_palm_link', plan_only=False)              
+                
+        #         rospy.sleep(1.0)
+        #         rospy.loginfo("Hand moved to grasp position")
+                
+        #     except Exception as e:
+        #         rospy.logerr(f"Failed to move hand: {e}")
+        #         raise
+            
+
+        #     result.action_success = True
+        #     result.forward_distance = 0.2
+        #     self._as.set_succeeded(result)
+            
+        # except Exception as e:
+        #     rospy.logwarn("Failed moving body. {}".format(e))
+        #     feedback.feedback = 2  # Failure
+        #     self._as.publish_feedback(feedback)
+        #     result.action_success = False
+        #     result.forward_distance = 0
+        #     self._as.set_aborted(result)
+        #     return
         
 if __name__ == '__main__':
     rospy.init_node('manip_approach')

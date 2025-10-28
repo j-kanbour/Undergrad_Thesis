@@ -21,27 +21,13 @@
 
 """
 
-"""
-Notes, 
-
-Sample all ponts on the target SQ
-    ✅ For front- get closest point on closest sq	
-
-    ✅ For top- get highest point on highest sq
-
-    ✅ Z-axis points to centre of sq
-    
-    X-axis points along the long extent
-    Y-axis points along the short extent
-
-"""
-
 import rospy
 import time
 import numpy as np 
 import open3d as o3d
 from geometry_msgs.msg import PoseStamped
 from scipy.spatial.transform import Rotation as R
+from tf.transformations import quaternion_from_matrix
 
 class Grasps:
     def __init__(self, sq_list, target_frame, object_center, orientation=None, grasp_width=0.5, debug=False):
@@ -187,9 +173,6 @@ class Grasps:
             
             # Build rotation matrix from axes
             rotation_matrix = np.column_stack([x_axis, y_axis, z_axis])
-            
-            # Convert rotation matrix to quaternion
-            from tf.transformations import quaternion_from_matrix
             
             # Create 4x4 homogeneous transformation matrix
             transform_matrix = np.eye(4)
