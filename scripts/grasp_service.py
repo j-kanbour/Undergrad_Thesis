@@ -242,10 +242,10 @@ class GraspGeneratorService():
             forward_vector = R_horiz[:, 0]
             delta_pos = -0.5 * forward_vector
             new_pos = np.array([pose.pose.position.x, pose.pose.position.y, pose.pose.position.z]) + delta_pos
-            x, y, z = new_pos
+            x, y, _ = new_pos
             
             base_pose = PoseStamped()
-            base_pose.header.frame_id = "base_footprint"
+            base_pose.header.frame_id = target_frame
             base_pose.pose.position.x = x
             base_pose.pose.position.y = y
             base_pose.pose.position.z = 0
@@ -253,7 +253,7 @@ class GraspGeneratorService():
             base_pose.pose.orientation.y = quat[1]
             base_pose.pose.orientation.z = quat[2]
             base_pose.pose.orientation.w = quat[3]
-            
+
             return base_pose
         
         except Exception as e:
