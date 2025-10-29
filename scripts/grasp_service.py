@@ -111,6 +111,8 @@ class GraspGeneratorService():
                 rospy.logwarn(response.message)
                 return response
 
+            if self.debug:
+                rospy.loginfo(f"Target object found: ID {target_obj.tracking_id}, Class {target_obj.object_class}")
             init_time = time.time()
 
             # Generate point cloud from rgb, depth and mask
@@ -254,7 +256,10 @@ class GraspGeneratorService():
             base_pose.pose.orientation.z = quat[2]
             base_pose.pose.orientation.w = quat[3]
 
-            return base_pose
+            T = self.tf_buffer.lookup_transform('map', "base_footprint", rospy.Time.now(), rospy.Duration(2))
+            pose = tf2_geometry_msgs.do_transform_pose(base_pose, T)
+
+            return pose
         
         #     #transform the pose frame
         #     T = self.tf_buffer.lookup_transform(target_frame, grasp_pose.header.frame_id, rospy.Time.now(), rospy.Duration(2))
