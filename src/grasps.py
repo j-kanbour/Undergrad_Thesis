@@ -1,13 +1,38 @@
+#!/usr/bin/env python3.8
+
 """
-    Grasp Generator
+    grasps: grasp point generation and selection from superquadric fits
 
-    author: Jayden Kanbour
-    UNSW student_id: z5316799
+    Input:
+        sq: point cloud of the superquadric to fit superquadric to
+        sq_poses: list of 3x3 rotation matrices of the superquadrics
+        target_frame: frame id for the generated PoseStamped
+        orientation: 'front' or 'top' for selecting grasp points based on object orientation
+        gripper_width: width of the gripper for filtering grasp points
+    
+    Output:
+        selectedGrasps: PoseStamped of the selected grasp point
+        graspPoints: point cloud of all potential grasp points
 
-    # get grasp to match the direction its orientation (i.e. if top then rotate accordingly)
-    # if orientation is none then search all points
-    # isolate top from bottom, front from back by the plane with most pcd points closest to it (how??)
-    # if no points found then default to center of largest superquadric
+    Developed by: Jayden Kanbour as part of undergraduate thesis for UNSW Computer Science and Engineering
+    Date: 26th November 2025
+    Email: jkanbour1@gmail.com
+    UNSW Student Id: z5316799
+
+"""
+
+"""
+Notes, 
+
+Sample all ponts on the target SQ
+    ✅ For front- get closest point on closest sq	
+
+    ✅ For top- get highest point on highest sq
+
+    ✅ Z-axis points to centre of sq
+    
+    X-axis points along the long extent
+    Y-axis points along the short extent
 
 """
 
@@ -17,162 +42,157 @@ import sys
 import numpy as np 
 import open3d as o3d
 import random
-# from geometry_msgs.msg import PoseStamped
-# from scipy.spatial.transform import Rotation as R
-
-# module_path = os.environ.get("UNSW_WS")
-# sys.path.append(module_path + "/PLANNING/action_server/src/grasp_code")
 
 class Grasps:
-    def __init__(self, sq, sq_pose, orientation=None, gripper_width = 0.5, gripper_depth = 0.5):
-        #blinky: depth=0.0666, width=0.236
+    def __init__(self, sq_list, target_frame, object_center, orientation=None, grasp_width=0.5, debug=False):
 
-        self.print = lambda *args, **kwargs: print("Grasps:", *args, **kwargs)
-
-        #extract necessary information from superquadric object
-        #sq = sq.getSuperquadricAsPCD()
-        
-        # self.depth_masked = sq.getRawData()["masked_depth"]
-        
-        # #extracts camera info
-        # self.camera_info = sq.getRawData()["camera_info"]
-        # self.K = np.array(self.camera_info.K).reshape(3, 3)
-        # self.fx = self.K[0, 0]
-        # self.fy = self.K[1, 1]
-        # self.cx = self.K[0, 2]
-        # self.cy = self.K[1, 2]
-        # self.w = self.camera_info.width
-        # self.h = self.camera_info.height
-        
-        # self.depth_scale = 0.001 #??
-
-        # self.object_pcd = sq.getPCD().getPCD()
+        self.debug = debug
+        self.target_frame = target_frame
+        self.orientation = orientation
+        self.grasp_width = grasp_width
+        self.object_center = object_center
 
         #generate and select best grasp
-        self.graspPoints = o3d.geometry.PointCloud()
-        self.primaryPoints, self.pose = self.graspPointFiltering(sq, sq_pose, orientation, gripper_depth, gripper_width)
-        self.selectedGrasps = self.generatePose(self.primaryPoints, self.pose)
-
-    def extractPointsAlongAxis(self, sq, pose, orientation, angle_tol_deg= 5.0, extent_threshold=0.236):
-        """
-        From a point cloud sq with normals, return points whose normals are parallel to
-        the object x, y, or z axes defined by its oriented bounding box (either + or −).
-        The result will exclude points on faces where both extents (other than the relevant axis) are larger than a threshold value (0.236).
-        The result will be returned as an open3d.geometry.PointCloud.
-        """
-
-        # Pull arrays
-        P = np.asarray(sq.points)            # (N, 3)
-        N = np.asarray(sq.normals)           # (N, 3)
-
-        if P.size == 0:
-            return o3d.geometry.PointCloud()  # Return an empty PointCloud if no points
-
-        # Ensure normals are unit length (guard against non-normalised inputs)
-        n_norm = np.linalg.norm(N, axis=1, keepdims=True)
-        n_norm[n_norm == 0] = 1.0
-        N = N / n_norm
-
-        # Object axes from OBB rotation
-        obb = sq.get_oriented_bounding_box()
-
-        # if orientation == 'front':
-        #     #rotate R 90 degrees about x axis and y axis
-        #     R = R @ np.array([[1, 0, 0],
-        #                       [0, 0, -1],
-        #                       [0, 1, 0]])
-        # elif orientation == 'top':
-        #     #rotate R 90 degrees about y axis and then 180 about x
-        #     R = R @ np.array([[0, 0, 1],
-        #                       [0, 1, 0],
-        #                       [-1, 0, 0]])
-        #ex, ey, ez = R[:, 0], R[:, 1], R[:, 2]  # world-space unit axes for object x, y, z
-
-        # Get OBB extents (half lengths in each direction)
-        extents = np.array(2*obb.extent)  # [width, height, depth]
+        if debug:
+            self.graspPoints = o3d.geometry.PointCloud()
         
-        # Angle test: |dot(n, axis)| >= cos(theta)
-        c = np.cos(np.deg2rad(angle_tol_deg))
-        dots = np.abs(N @ pose)   # shape (N, 3): [|n·ex|, |n·ey|, |n·ez|]
 
-        # Any axis match
-        mask_any = (dots >= c).any(axis=1)
-        all_idx = np.where(mask_any)[0]
+        self.primarySQ, self.grasp_point = self.SQFiltering(sq_list)
 
-        # Filter the points based on OBB extents condition (exclude those points)
-        filtered_points = P[all_idx]
-        filtered_normals = N[all_idx]
 
-        # Initialize list to hold valid points
-        valid_points = []
+        self.selectedGrasps = self.generatePose(self.grasp_point, self.primarySQ)
 
-        # Check each point to see if it lies on a face where the other extents are smaller than the threshold
-        for i, _ in enumerate(filtered_points):
-            normal = filtered_normals[i]
-            # If the point's normal is close to the x, y, or z axis, check the corresponding extents
-            if (orientation == 'front') and np.abs(normal[0]) > 0.7:  # X axis (np.abs(normal al)igned with X face)
-                print('front, x')
-                if extents[1] < extent_threshold or extents[2] < extent_threshold:  # Y and Z extents must be below threshold
-                    valid_points.append(filtered_points[i])
-                if extents[0] < extent_threshold or extents[1] < extent_threshold:  # X and Y extents must be below threshold
-                    valid_points.append(filtered_points[i])
+    def SQFiltering(self, sq_list):
+        """
+            Sort superquadrics by size and find valid grasp points.
+            Returns the selected grasp point AND the corresponding OBB rotation matrix.
+        """
 
-            if (orientation == 'top') and normal[1] > 0.7:  # Y axis (np.abs(normal al)igned with Y face)
-                print('side, y')
-                if extents[0] < extent_threshold or extents[2] < extent_threshold:  # X and Z extents must be below threshold
-                    valid_points.append(filtered_points[i])
-
-        print(f"Valid points count: {len(valid_points)}")
-
-        # Convert the valid points back into Open3D PointCloud object
-        valid_pcd = o3d.geometry.PointCloud()
-        if len(valid_points) > 0:
-            valid_pcd.points = o3d.utility.Vector3dVector(np.array(valid_points))
-            self.graspPoints += valid_pcd
-
-        return valid_pcd
-
-    def graspPointFiltering(self, sq_list, sq_pose, orientation=None, gripper_depth=0.0666, gripper_width=0.236):
-        #sort sq_list by sq size (i.e. number of points)
-        #perform extractPointsAlongAxis on it
-            #if points found generate grasps for each point and procede to selecction
-            #if not then move to next largest sq
-            #if none then select center of largest sq as grasp point
-
-        sq_list = sorted(sq_list, key=lambda x: len(x.points), reverse=True)
-        
-        for sq, pose in zip(sq_list, sq_pose):
-            primary_points = self.extractPointsAlongAxis(sq, pose, orientation, angle_tol_deg=5.0, extent_threshold=gripper_width)
-            if len(primary_points.points) > 0:
-                self.print(f"Found {len(primary_points.points)} primary points on superquadric with {len(sq.points)} points.")
-                                # DETERMINISTIC SELECTION: Use centroid of all primary points
-                points_array = np.asarray(primary_points.points)
-                selected_point = np.mean(points_array, axis=0)
+        try:
+            # Sort sq_list by their position relative to the camera origin (closest first)
+            if self.orientation == 'front' or self.orientation is None:
+                # Sort by Euclidean distance in the XY–Z plane (closest object to camera)
+                # Sort both lists together based on 3D distance from origin
+                sq_closest = sorted(sq_list, key=lambda x: np.linalg.norm(x.getCenter()[:3]))
                 
-                return selected_point, pose  # Return point and rotation
+                for sq in sq_closest:  # Iterate through each superquadric
+                    sorted_extent = sorted(sq.getBBOXExtent(), reverse=True)
+
+                    if sorted_extent[0] > self.grasp_width and sorted_extent[1] > self.grasp_width:
+                        continue
+                    # If we get here, this object is valid
+                    sq_center = sq.getCenter()
+                    return sq, sq_center
+                
+                # If no valid object found, return None
+                return None, None
+
+            elif self.orientation == 'top':
+                # Choose the object with the highest vertical centre first.
+                # If your camera/world is Z-up, set VERT = 2; if Y-up, set VERT = 1.
+                VERT = 2
+                sq_sorted = sorted(sq_list, key=lambda sq: sq.getCenter()[VERT], reverse=True)
+
+                for sq in sq_sorted:
+                    exts = sorted(sq.getBBOXExtent(), reverse=True)
+                    if exts[0] > self.grasp_width and exts[1] > self.grasp_width:
+                        continue
+
+                    # Get mesh points and highest surface point
+                    mesh_pts = np.asarray(sq.getSuperquadricMesh().points)
+                    if mesh_pts.size == 0:
+                        continue
+
+                    idx = np.argmax(mesh_pts[:, VERT])   # topmost point along the vertical axis
+                    highest_point = mesh_pts[idx]
+
+                    # Move the grasp centre upward by 5 cm
+                    adjusted_point = np.copy(highest_point)
+                    adjusted_point[VERT] += 0.20
+
+                    return sq, adjusted_point
+
+                return None, None
+
             else:
-                self.print(f"No primary points found on superquadric with {len(sq.points)} points.")
+                return None, None  # Or handle other cases appropriately
         
-        self.print("No primary points found on any superquadric. Defaulting to center of largest superquadric.")
-        return sq_list[0].get_center(), sq_pose[0]  # Return center of largest sq and its rotation
-    
-    def generatePose(self, grasp_point, sq_pose):
+        except Exception as e:
+            print(f"grasp [graspPointFiltering] Error: {e}")
+            return None
+
+    def generatePose(self, grasp_point, sq):
         """
-        Generate a coordinate frame mesh for visualization with Open3D.
-        
-        Args:
-            grasp_point: Open3D point (numpy array [x, y, z])
-            sq_pose: Original object pose containing rotation (R matrix or quaternion)
-        
-        Returns:
-            Open3D TriangleMesh representing a coordinate frame at the grasp pose
+        Generate an Open3D coordinate frame with orientation based on superquadric extents.
         """
-        # Handle rotation from sq_pose
-        # Assuming sq_pose.R is a 3x3 rotation matrix
-        rotation_matrix = sq_pose
+        # Get superquadric properties
+        sq_center = sq.getCenter()
+        bbox_extent = sq.getBBOXExtent()
+        init_pose = sq.getSQPose()
+        object_center = self.object_center
         
-        # Create a coordinate frame mesh for visualization
-        # Size parameter controls the length of the axes
+        # Calculate orientation
+        # a) Z-axis points towards object_center in x,y plane only
+        target_point = np.array([object_center[0], object_center[1], grasp_point[2]])
+        z_axis = target_point - np.array(grasp_point)
+        z_axis = z_axis / np.linalg.norm(z_axis)  # Normalize
+        
+        # Find the shortest and longest extent axes
+        extents = bbox_extent
+        sorted_indices = np.argsort(extents)
+        min_extent_idx = sorted_indices[0]  # Shortest
+        max_extent_idx = sorted_indices[2]  # Longest
+        
+        # Get the axes in the superquadric's local frame
+        shortest_axis_local = np.zeros(3)
+        shortest_axis_local[min_extent_idx] = 1.0
+        
+        longest_axis_local = np.zeros(3)
+        longest_axis_local[max_extent_idx] = 1.0
+        
+        # Transform to world frame using the pose rotation matrix
+        rotation_matrix_sq = init_pose[:3, :3]
+        
+        shortest_axis_world = rotation_matrix_sq @ shortest_axis_local
+        longest_axis_world = rotation_matrix_sq @ longest_axis_local
+        
+        # Project axes onto plane perpendicular to z_axis
+        # Y-axis should align with shortest extent
+        y_axis = shortest_axis_world - np.dot(shortest_axis_world, z_axis) * z_axis
+        y_axis_norm = np.linalg.norm(y_axis)
+        
+        # X-axis should align with longest extent
+        x_axis = longest_axis_world - np.dot(longest_axis_world, z_axis) * z_axis
+        x_axis_norm = np.linalg.norm(x_axis)
+        
+        # Handle edge cases where projection is too small
+        if y_axis_norm < 0.1 or x_axis_norm < 0.1:
+            # Fallback: use the axis that has better projection
+            if y_axis_norm > x_axis_norm:
+                y_axis = y_axis / y_axis_norm
+                x_axis = np.cross(y_axis, z_axis)
+                x_axis = x_axis / np.linalg.norm(x_axis)
+            else:
+                x_axis = x_axis / x_axis_norm
+                y_axis = np.cross(z_axis, x_axis)
+                y_axis = y_axis / np.linalg.norm(y_axis)
+        else:
+            # Normalize both
+            y_axis = y_axis / y_axis_norm
+            x_axis = x_axis / x_axis_norm
+            
+            # Make sure they're orthogonal by adjusting x_axis
+            x_axis = x_axis - np.dot(x_axis, y_axis) * y_axis
+            x_axis = x_axis / np.linalg.norm(x_axis)
+            
+            # Ensure right-handed coordinate system
+            if np.dot(np.cross(x_axis, y_axis), z_axis) < 0:
+                x_axis = -x_axis
+        
+        # Construct rotation matrix [x_axis, y_axis, z_axis]
+        rotation_matrix = np.column_stack((x_axis, y_axis, z_axis))
+        
+        # Create coordinate frame
         coordinate_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(
             size=0.1,  # Adjust this value based on your scale
             origin=[0, 0, 0]
@@ -181,55 +201,13 @@ class Grasps:
         # Apply rotation
         coordinate_frame.rotate(rotation_matrix, center=[0, 0, 0])
         
-        # Apply translation to grasp point
+        # Translate to grasp point
         coordinate_frame.translate(grasp_point)
         
         return coordinate_frame
-
-    # def generatePose(self, grasp_point, frame_id, sq_pose):
-    #     """
-    #     Generate a PoseStamped by projecting a pose onto a point.
         
-    #     Args:
-    #         grasp_point: Open3D point (numpy array [x, y, z])
-    #         sq_pose: Original object pose containing rotation (R matrix or quaternion)
-        
-    #     Returns:
-    #         PoseStamped with the point position and projected rotation
-    #     """
-    #     # Create PoseStamped message
-    #     pose_stamped = PoseStamped()
-    #     pose_stamped.header.frame_id = frame_id  # Change to your frame
-    #     pose_stamped.header.stamp = rospy.Time.now()  # or use your timestamp
-        
-    #     # Set position from grasp point
-    #     pose_stamped.pose.position.x = grasp_point[0]
-    #     pose_stamped.pose.position.y = grasp_point[1]
-    #     pose_stamped.pose.position.z = grasp_point[2]
-        
-    #     # Handle rotation from sq_pose
-    #     # Assuming sq_pose.R is a 3x3 rotation matrix
-    #     if hasattr(sq_pose, 'R'):
-    #         rotation_matrix = sq_pose.R
-    #     else:
-    #         # If sq_pose is already a rotation matrix
-    #         rotation_matrix = sq_pose
-        
-    #     # Convert rotation matrix to quaternion
-    #     scipy_rotation = R.from_matrix(rotation_matrix)
-    #     quat = scipy_rotation.as_quat()  # Returns [x, y, z, w]
-        
-    #     # Set orientation
-    #     pose_stamped.pose.orientation.x = quat[0]
-    #     pose_stamped.pose.orientation.y = quat[1]
-    #     pose_stamped.pose.orientation.z = quat[2]
-    #     pose_stamped.pose.orientation.w = quat[3]
-        
-    #     return pose_stamped
-
     def getGraspPoints(self):
         return self.graspPoints
     
     def getSelectedGrasps(self):
         return self.selectedGrasps
-    

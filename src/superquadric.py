@@ -1,127 +1,170 @@
-from pointCloudData import PointCloudData
+#!/usr/bin/env python3.8
+
+"""
+    superquadric: estimates and firts superquadrics to partial point cloud model, 
+                  shape values e1, e2 are estimated based on kurtosis of point cloud
+                  size values a1, a2, a3 are estimated based on bounding box of point cloud
+                  pose is estimated based on oriented bounding box of point cloud
+
+    Input:
+        pcd: point cloud of the object to fit superquadric to
+        debug: if True, print debug information
+    
+    Output:
+        superquadric: point cloud of the fitted superquadric
+        pose: 3x3 rotation matrix of the superquadric  
+
+    Developed by: Jayden Kanbour as part of undergraduate thesis for UNSW Computer Science and Engineering
+    Date: 26th November 2025
+    Email: jkanbour1@gmail.com
+    UNSW Student Id: z5316799
+
+"""
+
 import numpy as np
 import open3d as o3d
 from scipy.stats import kurtosis
 import time
-import re
 
 class Superquadric:
-    def __init__(self, pcd):
-        #object_ID, class_name, raw_rgb, raw_depth=None, mask=None, camera_info=None
-        self.print = lambda *args, **kwargs: print("Superquadric:", *args, **kwargs)
+    def __init__(self, pcd, downsample=30, debug=False):
 
-        #estimate values of e
         init_time = time.time()
-        self.e1, self.e2 = self.estimateE(pcd)
-        print(f"        e time: {time.time() - init_time:.3f}s")
+        self.debug = debug
+        self.downsample = downsample
+        self.extent = None
+        self.pose = None
+        self.center = None
 
-        self.superquadric, self.pose = self.createSuperquadric(pcd, self.e1, self.e2)
-        print(f"        SQ time: {time.time() - init_time:.3f}s")
-        print(f"        Num Points: {len(self.superquadric.points)}")
+        # estimate e1, e2 for superquadric fitting
+        self.e1, self.e2 = self.estimateE(pcd)
+
+        # create superquadric mesh and pose
+        self.superquadric = self.createSuperquadric(pcd, self.e1, self.e2)
+
+        if self.debug:
+            print(f"Superquadric: time: {time.time() - init_time:.3f}s")
+            print(f"Superquadric: SQ time: {time.time() - init_time:.3f}s")
+            print(f"Superquadric: Num Points: {len(self.superquadric.points)}")
 
 
     def estimateE(self, pcd):
 
-        points = np.asarray(pcd.points)
+        """
+            Estimate superquadric shape parameters e1 and e2 based on point cloud kurtosis.
+            
+            e1 controls shape along z-axis (elongation/flattening)
+            e2 controls shape in xy-plane (roundness/squareness)
+        """
 
-        if points.shape[0] < 10:
-            self.print("Not enough points to estimate shape reliably.")
+        try:
+            points = np.asarray(pcd.points)
+            center = pcd.get_center()
+            centered_points = points - center
+
+            # Compute Fisher kurtosis for x, y, z axes of the point cloud
+            krt = kurtosis(centered_points, axis=0, fisher=True, bias=False)
+
+            # Shape parameter along z-axis based on kurtosis (controls superquadric elongation or flattening)
+            e1 = np.clip(1 + (krt[2] - 3) * 0.1, 0.3, 2.0)
+
+            # Shape parameter along xy-plane based on average x and y kurtosis
+            e2 = np.clip(1 + ((krt[0] + krt[1]) / 2 - 3) * 0.1, 0.3, 2.0)
+
+            if self.debug:
+                print(f"Estimated e1: {e1:.3f}, e2: {e2:.3f}")
+
+            return e1, e2
+        
+        except Exception as e:
+            print(f"superquadric [estimateE] Error: {e}")
             return 1.0, 1.0
 
-        centroid = pcd.get_center()
-        centered_points = points - centroid
+    
+    def createSuperquadric(self, pcd, e1, e2):
+        """
+            Create a superquadric point cloud fitted to the input point cloud.
+            Uses oriented bounding box of the point cloud to determine size and pose.
+        """
 
-        # Compute Fisher kurtosis for x, y, z axes of the point cloud
-        #   Kurtosis:  is a statistical measure that describes the "tailedness" of a 
-        #              probability distribution, essentially indicating how many outliers are present
-        krt = kurtosis(centered_points, axis=0, fisher=True, bias=False)
+        try:
+            # Check if point cloud is too flat
+            points = np.asarray(pcd.points)
+            ranges = points.max(axis=0) - points.min(axis=0)
+            
+            if self.debug:
+                print(f"Point cloud ranges: X={ranges[0]:.4f}, Y={ranges[1]:.4f}, Z={ranges[2]:.4f}")
+            
+            # If any dimension is too small, add artificial thickness
+            min_range = 0.01  # 1cm
+            if np.any(ranges < min_range):
+                flat_dim = np.argmin(ranges)
+                if self.debug:
+                    print(f"Segment is flat in dimension {flat_dim}, adding artificial thickness")
+                
+                # Add small noise in the flat dimension
+                noise = np.zeros_like(points)
+                noise[:, flat_dim] = np.random.normal(0, min_range/4, len(points))
+                pcd.points = o3d.utility.Vector3dVector(points + noise)
+            
+            # Now compute OBB
+            obb = pcd.get_oriented_bounding_box()
 
-        # Shape parameter along z-axis based on kurtosis (controls superquadric elongation or flattening)
-        e1 = np.clip(1 + (krt[2] - 3) * 0.1, 0.3, 2.0)
+            self.extent = obb.extent
+            a1, a2, a3 = self.extent[0] / 2.0, self.extent[1] / 2.0, self.extent[2] / 2.0
 
-        # Shape parameter along xy-plane based on average x and y kurtosis
-        e2 = np.clip(1 + ((krt[0] + krt[1]) / 2 - 3) * 0.1, 0.3, 2.0)
+            self.pose = obb.R
 
-        self.print(f"Estimated e1: {e1:.3f}, e2: {e2:.3f}")
-        return e1, e2
+            self.center = obb.center
 
-    def createSuperquadric(self, pcd, e1, e2, res_u=128, res_v=256, point_percent=10):
-        eta = np.linspace(-np.pi/2, np.pi/2, res_u)
-        omega = np.linspace(-np.pi, np.pi, res_v, endpoint=False)
-        Eta, Omega = np.meshgrid(eta, omega, indexing="ij")
+            # Decide target number of points for final model (downsampling if needed)
+            n_points = max(100, int(len(pcd.points) * self.downsample // 100))
 
-        # Use the oriented bounding box (OBB) for size, rotation, and centre
-        obb = pcd.get_minimal_oriented_bounding_box()
-        a1, a2, a3 = obb.extent[0]/2, obb.extent[1]/2, obb.extent[2]/2
-        R = obb.R  # 3x3 rotation (local -> world)
+            # Superquadric parameter generation x, y, z
+            eta = (np.random.rand(n_points) - 0.5) * np.pi 
+            eta *= 1.0
+            eta = eta / 1.0 
+            u = np.random.rand(n_points) * 2.0 - 1.0 
+            eta = np.arcsin(np.clip(u, -1.0, 1.0))  
+            omega = (np.random.rand(n_points) * 2.0 - 1.0) * np.pi 
+
+            def sgn(x):
+                return np.sign(x + 1e-15)
+
+            ce, se = np.cos(eta), np.sin(eta)
+            co, so = np.cos(omega), np.sin(omega)
+
+            x = a1 * sgn(ce) * np.abs(ce)**e1 * sgn(co) * np.abs(co)**e2
+            y = a2 * sgn(ce) * np.abs(ce)**e1 * sgn(so) * np.abs(so)**e2
+            z = a3 * sgn(se) * np.abs(se)**e1
+
+            # World transform
+            V_local = np.stack([x, y, z], axis=1) 
+            V_world = (self.pose @ V_local.T).T + self.center
+
+            # Build point cloud directly
+            sq_pcd = o3d.geometry.PointCloud()
+            sq_pcd.points = o3d.utility.Vector3dVector(V_world.astype(np.float64))
+
+            # Estimate normals once
+            sq_pcd.estimate_normals(
+                search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.02, max_nn=30)
+            )
+
+            return sq_pcd
         
-        # Visualize the pose of R
-        import open3d as o3d
-        
-        # Create a coordinate frame at the origin with the rotation R
-        frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=max(a1, a2, a3))
-        frame.rotate(R, center=(0, 0, 0))
-        frame.translate(obb.center)
-        
-        # Create visualizer
-        vis = o3d.visualization.Visualizer()
-        vis.create_window(window_name="Rotation Pose Visualization")
-        
-        # Add geometries
-        vis.add_geometry(pcd)
-        vis.add_geometry(obb)
-        vis.add_geometry(frame)
-        
-        # Run visualizer
-        vis.run()
-        vis.destroy_window()
-        center = obb.center                      # world-space centre of the OBB
-
-        def sgn(x):  # sign with zero preserved
-            return np.sign(x + 1e-15)
-
-        ce, se = np.cos(Eta), np.sin(Eta)
-        co, so = np.cos(Omega), np.sin(Omega)
-
-        # Local (superquadric/OBB) coordinates
-        x = a1 * sgn(ce) * np.abs(ce)**e1 * sgn(co) * np.abs(co)**e2
-        y = a2 * sgn(ce) * np.abs(ce)**e1 * sgn(so) * np.abs(so)**e2
-        z = a3 * sgn(se) * np.abs(se)**e1
-
-        V_local = np.stack([x, y, z], axis=-1).reshape(-1, 3)
-
-        # Rotate into world frame using the OBB rotation, then translate to OBB centre
-        V_world = (R @ V_local.T).T + center
-
-        # Build mesh from world-space vertices
-        faces = []
-        for i in range(res_u - 1):
-            for j in range(res_v):
-                jn = (j + 1) % res_v
-                v00 = i * res_v + j
-                v01 = i * res_v + jn
-                v10 = (i + 1) * res_v + j
-                v11 = (i + 1) * res_v + jn
-                faces.append([v00, v10, v11])
-                faces.append([v00, v11, v01])
-
-        mesh = o3d.geometry.TriangleMesh(
-            vertices=o3d.utility.Vector3dVector(V_world),
-            triangles=o3d.utility.Vector3iVector(np.asarray(faces, dtype=np.int32)),
-        )
-        mesh.remove_duplicated_vertices()
-        mesh.remove_degenerate_triangles()
-        mesh.compute_vertex_normals()
-
-        n_points = len(pcd.points) * (point_percent) // 100
-        superquadricMesh = mesh.sample_points_poisson_disk(number_of_points=n_points, init_factor=5)
-        superquadricMesh.estimate_normals()
-
-        return superquadricMesh, R
-
+        except Exception as e:
+            print(f"superquadric [createSuperquadric] Error: {e}")
+            return 1.0, 1.0
 
     def getSuperquadricMesh(self):
         return self.superquadric
     
-    def getSuperquadricPose(self):
+    def getCenter(self):
+        return self.center
+    
+    def getBBOXExtent(self):
+        return self.extent
+    
+    def getSQPose(self):
         return self.pose
