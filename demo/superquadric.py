@@ -34,7 +34,7 @@ class Superquadric:
         self.downsample = downsample
         self.extent = None
         self.pose = None
-        self.centroid = None
+        self.center = None
 
         # estimate e1, e2 for superquadric fitting
         self.e1, self.e2 = self.estimateE(pcd)
@@ -59,8 +59,8 @@ class Superquadric:
 
         try:
             points = np.asarray(pcd.points)
-            centroid = pcd.get_center()
-            centered_points = points - centroid
+            center = pcd.get_center()
+            centered_points = points - center
 
             # Compute Fisher kurtosis for x, y, z axes of the point cloud
             krt = kurtosis(centered_points, axis=0, fisher=True, bias=False)
@@ -115,7 +115,7 @@ class Superquadric:
 
             self.pose = obb.R
 
-            self.centroid = obb.center
+            self.center = obb.center
 
             # Decide target number of points for final model (downsampling if needed)
             n_points = max(100, int(len(pcd.points) * self.downsample // 100))
@@ -140,7 +140,7 @@ class Superquadric:
 
             # World transform
             V_local = np.stack([x, y, z], axis=1) 
-            V_world = (self.pose @ V_local.T).T + self.centroid
+            V_world = (self.pose @ V_local.T).T + self.center
 
             # Build point cloud directly
             sq_pcd = o3d.geometry.PointCloud()
@@ -160,8 +160,8 @@ class Superquadric:
     def getSuperquadricMesh(self):
         return self.superquadric
     
-    def getCentroid(self):
-        return self.centroid
+    def getCenter(self):
+        return self.center
     
     def getBBOXExtent(self):
         return self.extent
